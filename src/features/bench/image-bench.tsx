@@ -1,4 +1,4 @@
-import { Copy, Download, ImageIcon, RotateCcw, Upload } from "lucide-react";
+import { Copy, Download, ExternalLink, ImageIcon, RotateCcw, Upload } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { toast } from "sonner";
 import { DropZone } from "@/components/layout/drop-zone";
@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { copyBlobToClipboard, imageFileFromClipboard } from "@/features/media/clipboard";
-import { formatFileSize } from "@/features/media/format";
+import { extFromMime, fileStem, formatFileSize } from "@/features/media/format";
+import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
 import { CROP_PRESETS, FORMAT_OPTIONS, type CropPresetId, type OutputFormat } from "@/features/media/types";
 import { cn } from "@/lib/utils";
@@ -28,7 +29,6 @@ export function ImageBench() {
   const error = useMediaStore((s) => s.error);
   const loadImageFile = useMediaStore((s) => s.loadImageFile);
   const process = useMediaStore((s) => s.process);
-  const downloadOutput = useMediaStore((s) => s.downloadOutput);
   const clearBench = useMediaStore((s) => s.clearBench);
   const setSettings = useMediaStore((s) => s.setSettings);
   const setError = useMediaStore((s) => s.setError);
@@ -68,6 +68,10 @@ export function ImageBench() {
     source && output && source.fileSize > 0
       ? ((savings / source.fileSize) * 100).toFixed(1)
       : null;
+
+  const outputName = output
+    ? `${fileStem(source?.fileName ?? "image")}_optimized.${extFromMime(output.format)}`
+    : "image_optimized.jpg";
 
   return (
     <Panel title="Bench">
@@ -183,7 +187,7 @@ export function ImageBench() {
         ) : null}
 
         <div className="mt-4 flex justify-center">
-          <Button disabled={!source || processing} onClick={() => void process()}>
+          <Button type="button" disabled={!source || processing} onClick={() => void process()}>
             Process Image
           </Button>
         </div>
@@ -219,15 +223,30 @@ export function ImageBench() {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-        <Button variant="success" disabled={!output} onClick={downloadOutput}>
-          <Download />
-          Download Saved Image
-        </Button>
-        <Button variant="outline" disabled={!output} onClick={() => void copyOutput()}>
+        {output ? (
+          <>
+            <SaveLink href={output.objectUrl} filename={outputName}>
+              <Download />
+              Download Saved Image
+            </SaveLink>
+            <Button asChild variant="outline">
+              <a href={output.objectUrl} target="_blank" rel="noopener">
+                <ExternalLink />
+                Open
+              </a>
+            </Button>
+          </>
+        ) : (
+          <Button type="button" variant="success" disabled>
+            <Download />
+            Download Saved Image
+          </Button>
+        )}
+        <Button type="button" variant="outline" disabled={!output} onClick={() => void copyOutput()}>
           <Copy />
           Copy
         </Button>
-        <Button variant="outline" onClick={clearBench} disabled={!source && !output}>
+        <Button type="button" variant="outline" onClick={clearBench} disabled={!source && !output}>
           <RotateCcw />
           Reset
         </Button>

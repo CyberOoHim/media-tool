@@ -240,13 +240,13 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     if (!output) return;
     const ext = extFromMime(output.format);
     const base = fileStem(source?.fileName ?? "image");
-    downloadBlob(output.blob, `${base}_optimized.${ext}`);
+    void downloadBlob(output.blob, `${base}_optimized.${ext}`);
   },
 
   downloadCapture: (id) => {
     const item = get().captures.find((c) => c.id === id);
     if (!item) return;
-    downloadBlob(item.blob, item.fileName);
+    void downloadBlob(item.blob, item.fileName);
   },
 
   setSettings: (partial) => {

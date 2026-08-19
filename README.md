@@ -11,7 +11,6 @@ Original HTML prototypes live in [`refs/`](./refs/) and were rebuilt here as a m
 | `/` | Combined workspace: player + bench + capture strip |
 | `/player` | Video player and captures |
 | `/bench` | Image optimizer |
-| `/login` | Optional Google / X sign-in (tools work signed out) |
 
 ## Features
 

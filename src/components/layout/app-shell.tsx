@@ -1,7 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
-import { AuthSlot } from "@/components/layout/auth-slot";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -64,11 +63,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </nav>
 
           <div className="ml-auto flex items-center gap-3">
-            <span className="hidden items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground md:flex">
+            <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
               <ShieldCheck className="size-3.5 text-success" />
               On-device
             </span>
-            <AuthSlot />
           </div>
         </div>
       </header>

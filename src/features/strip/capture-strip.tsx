@@ -5,6 +5,7 @@ import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatTime } from "@/features/media/format";
+import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
 import { cn } from "@/lib/utils";
 
@@ -12,7 +13,6 @@ export function CaptureStrip() {
   const captures = useMediaStore((s) => s.captures);
   const source = useMediaStore((s) => s.source);
   const openCapture = useMediaStore((s) => s.openCapture);
-  const downloadCapture = useMediaStore((s) => s.downloadCapture);
   const removeCapture = useMediaStore((s) => s.removeCapture);
   const clearCaptures = useMediaStore((s) => s.clearCaptures);
   const navigate = useNavigate();
@@ -24,6 +24,7 @@ export function CaptureStrip() {
       action={
         captures.length ? (
           <Button
+            type="button"
             variant="ghost"
             size="sm"
             onClick={() => {
@@ -71,15 +72,17 @@ export function CaptureStrip() {
                     </div>
                   </button>
                   <div className="mt-1 flex gap-1">
-                    <Button
+                    <SaveLink
+                      href={item.objectUrl}
+                      filename={item.fileName}
                       variant="ghost"
                       size="sm"
                       className="h-7 flex-1 px-1"
-                      onClick={() => downloadCapture(item.id)}
                     >
                       <Download className="size-3" />
-                    </Button>
+                    </SaveLink>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="sm"
                       className="h-7 flex-1 px-1"
