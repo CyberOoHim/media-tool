@@ -225,7 +225,7 @@ export function ImageBench() {
       <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
         {output ? (
           <>
-            <SaveLink href={output.objectUrl} filename={outputName}>
+            <SaveLink blob={output.blob} filename={outputName}>
               <Download />
               Download Saved Image
             </SaveLink>

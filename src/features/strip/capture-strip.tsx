@@ -73,7 +73,7 @@ export function CaptureStrip() {
                   </button>
                   <div className="mt-1 flex gap-1">
                     <SaveLink
-                      href={item.objectUrl}
+                      blob={item.blob}
                       filename={item.fileName}
                       variant="ghost"
                       size="sm"

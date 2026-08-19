@@ -1,9 +1,9 @@
-import { toast } from "sonner";
 import { Button, type ButtonProps } from "@/components/ui/button";
+import { saveBlob, toastSaveResult } from "@/features/media/download";
 import type { ReactNode } from "react";
 
 type SaveLinkProps = {
-  href: string;
+  blob: Blob;
   filename: string;
   children: ReactNode;
   variant?: ButtonProps["variant"];
@@ -12,24 +12,23 @@ type SaveLinkProps = {
 };
 
 /**
- * Real user-activated download. Programmatic a.click() is silently dropped
- * inside the live preview iframe; a genuine <a download> click is not.
- * target=_blank keeps the app in place if the browser ignores `download`.
+ * User-gesture save. iPad/iPhone ignore <a download> and never write a file,
+ * so we hand the blob to the native share sheet (Save Image / Save to Files).
  */
-export function SaveLink({ href, filename, children, variant = "success", size, className }: SaveLinkProps) {
+export function SaveLink({ blob, filename, children, variant = "success", size, className }: SaveLinkProps) {
   return (
-    <Button asChild variant={variant} size={size} className={className}>
-      <a
-        href={href}
-        download={filename}
-        target="_blank"
-        rel="noopener"
-        onClick={() => {
-          toast.success(`Saving ${filename}`);
-        }}
-      >
-        {children}
-      </a>
+    <Button
+      type="button"
+      variant={variant}
+      size={size}
+      className={className}
+      onClick={() => {
+        void saveBlob(blob, filename).then((result) => {
+          toastSaveResult(result, filename);
+        });
+      }}
+    >
+      {children}
     </Button>
   );
 }

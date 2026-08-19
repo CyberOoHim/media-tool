@@ -5,7 +5,7 @@ import { CaptureStrip } from "@/features/strip";
 
 export const Route = createFileRoute("/bench")({ component: BenchPage });
 
-function BenchPage() {
+export function BenchPage() {
   return (
     <AppShell>
       <ImageBench />

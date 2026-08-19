@@ -5,7 +5,7 @@ import { CaptureStrip } from "@/features/strip";
 
 export const Route = createFileRoute("/player")({ component: PlayerPage });
 
-function PlayerPage() {
+export function PlayerPage() {
   return (
     <AppShell>
       <VideoPlayer />

@@ -45,9 +45,16 @@ Then `npm run typecheck` and `npm run build` before a release.
 
 ## GitHub Actions
 
-[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs `npm ci`, typecheck, and a production build on every push and pull request. No secrets. No Vercel.
+One workflow: [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml).
 
-Host the built app wherever you like (`npm run build` uses the Nitro Vercel preset if you later connect that host yourself).
+- Every push and pull request: `npm ci`, typecheck, and a GitHub Pages build
+- Push to `main`: deploy that build to GitHub Pages (Actions source)
+
+No Vercel secrets. Pages URL after the first deploy:
+
+`https://cyberoohim.github.io/video-tool/`
+
+In the repo: **Settings → Pages → Source = GitHub Actions**.
 
 ## Layout (for contributors)
 

@@ -14,8 +14,19 @@ const fetchSessionUser = createServerFn({ method: "GET" }).handler(async () => {
   return u ? { id: u.id, email: u.email } : null;
 });
 
+function assetUrl(path: string) {
+  const base = import.meta.env.BASE_URL || "/";
+  return `${base.replace(/\/?$/, "/")}${path.replace(/^\//, "")}`;
+}
+
 export const Route = createRootRoute({
-  beforeLoad: async () => ({ sessionUser: await fetchSessionUser() }),
+  beforeLoad: async () => {
+    try {
+      return { sessionUser: await fetchSessionUser() };
+    } catch {
+      return { sessionUser: null };
+    }
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -28,10 +39,10 @@ export const Route = createRootRoute({
       { name: "theme-color", content: "#0a0c10" },
     ],
     links: [
-      { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" },
+      { rel: "icon", type: "image/svg+xml", href: assetUrl("favicon.svg") },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/__grok/icon-180.png" },
+      { rel: "manifest", href: assetUrl("__grok/manifest.webmanifest") },
+      { rel: "apple-touch-icon", href: assetUrl("__grok/icon-180.png") },
     ],
   }),
   component: RootDocument,
