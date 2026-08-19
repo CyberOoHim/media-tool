@@ -1,0 +1,281 @@
+import { create } from "zustand";
+import { compressImage, loadHtmlImage } from "./compress";
+import { downloadBlob } from "./download";
+import { extFromMime, fileStem, timestampForFilename } from "./format";
+import { revokeQuiet } from "./object-url";
+import {
+  DEFAULT_SETTINGS,
+  MAX_CAPTURES,
+  type BenchOutput,
+  type BenchSettings,
+  type CaptureItem,
+  type SourceImage,
+  type VideoSession,
+} from "./types";
+
+type MediaState = {
+  video: VideoSession | null;
+  source: SourceImage | null;
+  captures: CaptureItem[];
+  output: BenchOutput | null;
+  settings: BenchSettings;
+  processing: boolean;
+  error: string | null;
+  loadVideo: (file: File) => void;
+  clearVideo: () => void;
+  loadImageFile: (file: File) => Promise<void>;
+  captureFrame: (opts: {
+    blob: Blob;
+    width: number;
+    height: number;
+    timestampSec: number;
+    videoName: string;
+  }) => string;
+  openCapture: (id: string) => void;
+  removeCapture: (id: string) => void;
+  clearCaptures: () => void;
+  process: () => Promise<void>;
+  downloadOutput: () => void;
+  downloadCapture: (id: string) => void;
+  setSettings: (partial: Partial<BenchSettings>) => void;
+  clearBench: () => void;
+  resetAll: () => void;
+  setError: (message: string | null) => void;
+};
+
+function nextId(): string {
+  return `cap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export const useMediaStore = create<MediaState>((set, get) => ({
+  video: null,
+  source: null,
+  captures: [],
+  output: null,
+  settings: { ...DEFAULT_SETTINGS },
+  processing: false,
+  error: null,
+
+  loadVideo: (file) => {
+    if (!file.type.startsWith("video/")) {
+      set({ error: "Please select a valid video file." });
+      return;
+    }
+    const prev = get().video;
+    revokeQuiet(prev?.objectUrl);
+    set({
+      video: {
+        objectUrl: URL.createObjectURL(file),
+        fileName: file.name,
+        fileSize: file.size,
+      },
+      error: null,
+    });
+  },
+
+  clearVideo: () => {
+    revokeQuiet(get().video?.objectUrl);
+    set({ video: null });
+  },
+
+  loadImageFile: async (file) => {
+    if (!file.type.startsWith("image/")) {
+      set({ error: "Please select a valid image file (JPG, PNG, WebP)." });
+      return;
+    }
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      const img = await loadHtmlImage(objectUrl);
+      const prev = get().source;
+      const prevOut = get().output;
+      if (prev && !prev.fromCaptureId) revokeQuiet(prev.objectUrl);
+      revokeQuiet(prevOut?.objectUrl);
+      set({
+        source: {
+          objectUrl,
+          fileName: file.name,
+          fileSize: file.size,
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        },
+        output: null,
+        error: null,
+      });
+    } catch (err) {
+      revokeQuiet(objectUrl);
+      set({
+        error: err instanceof Error ? err.message : "Failed to parse image data.",
+      });
+    }
+  },
+
+  captureFrame: ({ blob, width, height, timestampSec, videoName }) => {
+    const id = nextId();
+    const objectUrl = URL.createObjectURL(blob);
+    const fileName = `${fileStem(videoName)}_${timestampForFilename(timestampSec)}.png`;
+    const item: CaptureItem = {
+      id,
+      objectUrl,
+      blob,
+      fileName,
+      width,
+      height,
+      timestampSec,
+      createdAt: Date.now(),
+    };
+
+    const prevSource = get().source;
+    const prevOut = get().output;
+    if (!prevSource?.fromCaptureId) revokeQuiet(prevSource?.objectUrl);
+    revokeQuiet(prevOut?.objectUrl);
+
+    set((state) => {
+      const next = [item, ...state.captures];
+      const overflow = next.slice(MAX_CAPTURES);
+      for (const old of overflow) {
+        if (old.id !== id) revokeQuiet(old.objectUrl);
+      }
+      return {
+        captures: next.slice(0, MAX_CAPTURES),
+        source: {
+          objectUrl,
+          fileName,
+          fileSize: blob.size,
+          width,
+          height,
+          fromCaptureId: id,
+        },
+        output: null,
+        error: null,
+      };
+    });
+
+    return id;
+  },
+
+  openCapture: (id) => {
+    const item = get().captures.find((c) => c.id === id);
+    if (!item) return;
+    const prev = get().source;
+    const prevOut = get().output;
+    if (prev && !prev.fromCaptureId) revokeQuiet(prev.objectUrl);
+    revokeQuiet(prevOut?.objectUrl);
+    set({
+      source: {
+        objectUrl: item.objectUrl,
+        fileName: item.fileName,
+        fileSize: item.blob.size,
+        width: item.width,
+        height: item.height,
+        fromCaptureId: item.id,
+      },
+      output: null,
+      error: null,
+    });
+  },
+
+  removeCapture: (id) => {
+    const item = get().captures.find((c) => c.id === id);
+    const source = get().source;
+    const using = source?.fromCaptureId === id;
+    if (using) {
+      revokeQuiet(item?.objectUrl);
+      revokeQuiet(get().output?.objectUrl);
+      set((state) => ({
+        captures: state.captures.filter((c) => c.id !== id),
+        source: null,
+        output: null,
+      }));
+      return;
+    }
+    revokeQuiet(item?.objectUrl);
+    set((state) => ({ captures: state.captures.filter((c) => c.id !== id) }));
+  },
+
+  clearCaptures: () => {
+    const { captures, source } = get();
+    for (const item of captures) {
+      if (source?.fromCaptureId === item.id) continue;
+      revokeQuiet(item.objectUrl);
+    }
+    set({ captures: [] });
+  },
+
+  process: async () => {
+    const { source, settings, processing } = get();
+    if (!source || processing) return;
+    set({ processing: true, error: null });
+    try {
+      const img = await loadHtmlImage(source.objectUrl);
+      const result = await compressImage(img, img.naturalWidth, img.naturalHeight, {
+        targetBytes: settings.targetKb * 1024,
+        quality: settings.quality,
+        format: settings.format,
+        cropPreset: settings.cropPreset,
+        customWidth: Number.parseInt(settings.customWidth, 10) || undefined,
+        customHeight: Number.parseInt(settings.customHeight, 10) || undefined,
+      });
+      const prevOut = get().output;
+      revokeQuiet(prevOut?.objectUrl);
+      set({
+        output: {
+          objectUrl: URL.createObjectURL(result.blob),
+          blob: result.blob,
+          width: result.width,
+          height: result.height,
+          format: result.format,
+        },
+        processing: false,
+      });
+    } catch (err) {
+      set({
+        processing: false,
+        error: err instanceof Error ? err.message : "Failed to process image.",
+      });
+    }
+  },
+
+  downloadOutput: () => {
+    const { output, source } = get();
+    if (!output) return;
+    const ext = extFromMime(output.format);
+    const base = fileStem(source?.fileName ?? "image");
+    downloadBlob(output.blob, `${base}_optimized.${ext}`);
+  },
+
+  downloadCapture: (id) => {
+    const item = get().captures.find((c) => c.id === id);
+    if (!item) return;
+    downloadBlob(item.blob, item.fileName);
+  },
+
+  setSettings: (partial) => {
+    set((state) => ({ settings: { ...state.settings, ...partial } }));
+  },
+
+  clearBench: () => {
+    const { source, output } = get();
+    if (source && !source.fromCaptureId) revokeQuiet(source.objectUrl);
+    revokeQuiet(output?.objectUrl);
+    set({ source: null, output: null, error: null });
+  },
+
+  resetAll: () => {
+    const { video, source, output, captures } = get();
+    revokeQuiet(video?.objectUrl);
+    if (source && !source.fromCaptureId) revokeQuiet(source.objectUrl);
+    revokeQuiet(output?.objectUrl);
+    for (const item of captures) revokeQuiet(item.objectUrl);
+    set({
+      video: null,
+      source: null,
+      captures: [],
+      output: null,
+      settings: { ...DEFAULT_SETTINGS },
+      processing: false,
+      error: null,
+    });
+  },
+
+  setError: (message) => set({ error: message }),
+}));

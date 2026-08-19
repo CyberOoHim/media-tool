@@ -1,0 +1,699 @@
+---
+layout: apps
+title: Terra Player w/ Screenshot
+version: 0.1a
+permalink: /pages/video-player-screenshot.html
+---
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Player & Screenshot Tool</title>
+    <style>
+        :root {
+            /* Using main site variables where possible, defining local overrides for specific player needs */
+            --player-bg: #000;
+            --control-bg: var(--bg-secondary);
+            --control-border: var(--border-color);
+            --accent-color: var(--text-link);
+        }
+
+        body {
+            /* Inherit from layout usually, but ensuring defaults here */
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+
+        .player-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(13, 17, 23, 0.5);
+        }
+
+        .player-title {
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            margin: 0;
+        }
+
+        .video-wrapper {
+            background: #000;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 300px;
+            position: relative;
+        }
+
+        video {
+            width: 100%;
+            max-height: 70vh;
+            display: block;
+        }
+
+        /* File Input Area */
+        .file-input-section {
+            display: flex;
+            justify-content: center;
+            padding: 40px;
+            text-align: center;
+            position: absolute;
+            z-index: 10;
+        }
+
+        /* Hide when video loaded unless empty */
+        video[src]+.file-input-section {
+            display: none;
+        }
+
+        .file-label {
+            display: inline-block;
+            padding: 12px 24px;
+            background: var(--text-link);
+            color: #fff;
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: none;
+            font-size: 0.95rem;
+        }
+
+        .file-label:hover {
+            background: #218bff;
+            /* Lighter blue */
+            transform: translateY(-1px);
+        }
+
+        .controls {
+            padding: 20px;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            height: 16px;
+            background: var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            position: relative;
+            margin-bottom: 20px;
+            transition: height 0.1s;
+        }
+
+        .progress-container:hover {
+            height: 20px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--text-link);
+            width: 0%;
+            border-radius: 8px;
+            position: relative;
+            pointer-events: none;
+        }
+
+        /* Seek handle/thumb */
+        .progress-bar::after {
+            content: '';
+            position: absolute;
+            right: -8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: transform 0.1s;
+        }
+
+        .progress-container:hover .progress-bar::after {
+            transform: translateY(-50%) scale(1.2);
+        }
+
+        /* Time & Inputs */
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .time-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+        }
+
+        .time-inputs {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .time-input {
+            width: 50px;
+            height: 36px;
+            padding: 0 5px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 4px;
+            text-align: center;
+            font-family: var(--font-mono);
+            font-size: 1rem;
+        }
+
+        .time-input:focus {
+            border-color: var(--text-link);
+            outline: none;
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        button {
+            padding: 10px 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 48px;
+        }
+
+        button:hover:not(:disabled) {
+            background: var(--bg-tertiary);
+            border-color: var(--text-secondary);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            background: var(--text-link);
+            color: white;
+            border: none;
+            font-weight: 600;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #218bff;
+            border-color: transparent;
+        }
+
+        .btn-screenshot {
+            border-color: var(--text-accent);
+            color: var(--text-accent);
+        }
+
+        .btn-screenshot:hover:not(:disabled) {
+            background: rgba(35, 134, 54, 0.1);
+            border-color: var(--text-accent);
+        }
+
+        /* Notification Toast */
+        .notification {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            padding: 10px 20px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+            z-index: 1000;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .notification.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Keyboard Hints */
+        .keyboard-hints {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 10px;
+            text-align: center;
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+        }
+
+        kbd {
+            font-family: var(--font-mono);
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            padding: 2px 4px;
+            font-size: 0.7rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="player-header">
+            <h1 class="player-title">Video Player & Screenshot Tool</h1>
+            <div id="fileName" style="font-size: 0.85rem; color: var(--text-secondary);">No file selected</div>
+        </div>
+
+        <div class="video-wrapper">
+            <div class="file-input-section">
+                <input type="file" id="videoFile" accept="video/mp4,video/*" style="display: none;">
+                <label for="videoFile" class="file-label">Select Video File</label>
+            </div>
+            <video id="videoPlayer"></video>
+        </div>
+
+        <div class="controls">
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+
+            <div class="controls-row">
+                <div class="btn-group">
+                    <button id="jumpStartBtn" disabled title="Start">⇤</button>
+                    <button id="backwardBtn" disabled title="Rewind 10s">-10s</button>
+                    <button id="playPauseBtn" class="btn-primary" disabled>Play</button>
+                    <button id="forwardBtn" disabled title="Fast Fwd 10s">+10s</button>
+                    <button id="jumpEndBtn" disabled title="End">⇥</button>
+                </div>
+
+                <div class="time-group">
+                    <span id="currentTime">00:00</span> / <span id="duration">00:00</span>
+                </div>
+
+                <div class="btn-group">
+                    <button id="screenshotBtn" class="btn-screenshot" disabled title="Take Screenshot">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z">
+                            </path>
+                            <circle cx="12" cy="13" r="4"></circle>
+                        </svg>
+                    </button>
+                    <button id="muteBtn" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                            <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="controls-row" style="margin-top: 15px; grid-auto-flow: column;">
+                <div class="time-group">
+                    <span style="font-size:0.8rem;">Jump to:</span>
+                    <div class="time-inputs">
+                        <input type="number" id="hoursInput" class="time-input" min="0" max="99" placeholder="00"
+                            disabled>
+                        <span>:</span>
+                        <input type="number" id="minutesInput" class="time-input" min="0" max="59" placeholder="00"
+                            disabled>
+                        <span>:</span>
+                        <input type="number" id="secondsInput" class="time-input" min="0" max="59" placeholder="00"
+                            disabled>
+                    </div>
+                    <button id="gotoTimeBtn" disabled style="padding: 4px 8px; font-size: 0.75rem;">Go</button>
+                </div>
+
+                <div class="keyboard-hints">
+                    <kbd>Space</kbd> Play/Pause &nbsp; <kbd>←/→</kbd> Seek &nbsp; <kbd>S</kbd> Screenshot &nbsp;
+                    <kbd>F</kbd> Fullscreen
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        // ... (Script remains mostly the same, just updated text content where needed)
+        const videoFile = document.getElementById('videoFile');
+        const fileName = document.getElementById('fileName');
+        const video = document.getElementById('videoPlayer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const backwardBtn = document.getElementById('backwardBtn');
+        const forwardBtn = document.getElementById('forwardBtn');
+        const screenshotBtn = document.getElementById('screenshotBtn');
+        const jumpStartBtn = document.getElementById('jumpStartBtn');
+        const jumpEndBtn = document.getElementById('jumpEndBtn');
+        const muteBtn = document.getElementById('muteBtn');
+        const hoursInput = document.getElementById('hoursInput');
+        const minutesInput = document.getElementById('minutesInput');
+        const secondsInput = document.getElementById('secondsInput');
+        const gotoTimeBtn = document.getElementById('gotoTimeBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const currentTimeDisplay = document.getElementById('currentTime');
+        const durationDisplay = document.getElementById('duration');
+        const notification = document.getElementById('notification');
+
+        // Load video file
+        videoFile.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                video.src = url;
+                fileName.textContent = file.name; // Clean name
+
+                // Enable controls
+                playPauseBtn.disabled = false;
+                backwardBtn.disabled = false;
+                forwardBtn.disabled = false;
+                screenshotBtn.disabled = false;
+                jumpStartBtn.disabled = false;
+                jumpEndBtn.disabled = false;
+                muteBtn.disabled = false;
+                hoursInput.disabled = false;
+                minutesInput.disabled = false;
+                secondsInput.disabled = false;
+                gotoTimeBtn.disabled = false;
+
+                showNotification('Video loaded');
+            }
+        });
+
+        // Format time (seconds to MM:SS)
+        function formatTime(seconds) {
+            if (isNaN(seconds)) return '00:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Update time display
+        video.addEventListener('timeupdate', () => {
+            // Show actual duration when at or very close to the end
+            if (video.duration - video.currentTime < 0.1) {
+                currentTimeDisplay.textContent = formatTime(video.duration);
+            } else {
+                currentTimeDisplay.textContent = formatTime(video.currentTime);
+            }
+            const progress = (video.currentTime / video.duration) * 100;
+            progressBar.style.width = progress + '%';
+        });
+
+        // Update duration when metadata loads
+        video.addEventListener('loadedmetadata', () => {
+            durationDisplay.textContent = formatTime(video.duration);
+        });
+
+        // Play/Pause
+        playPauseBtn.addEventListener('click', togglePlayPause);
+
+        function togglePlayPause() {
+            if (video.paused) {
+                video.play();
+                playPauseBtn.innerHTML = 'Pause';
+            } else {
+                video.pause();
+                playPauseBtn.innerHTML = 'Play';
+            }
+        }
+
+        // Update button when video ends
+        video.addEventListener('ended', () => {
+            playPauseBtn.innerHTML = 'Play';
+        });
+
+        // Fast backward
+        backwardBtn.addEventListener('click', () => {
+            video.currentTime = Math.max(0, video.currentTime - 10);
+            showNotification('Rewind 10s');
+        });
+
+        // Fast forward
+        forwardBtn.addEventListener('click', () => {
+            video.currentTime = Math.min(video.duration, video.currentTime + 10);
+            showNotification('Forward 10s');
+        });
+
+        // Jump to start
+        jumpStartBtn.addEventListener('click', () => {
+            video.currentTime = 0;
+            showNotification('Jump to start');
+        });
+
+        // Jump to end (tiny offset ensures last frame is displayable, time display compensates)
+        jumpEndBtn.addEventListener('click', () => {
+            video.currentTime = video.duration - 0.001;
+            showNotification('Jump to end');
+        });
+
+        // Mute/Unmute
+        muteBtn.addEventListener('click', toggleMute);
+
+        function toggleMute() {
+            video.muted = !video.muted;
+            if (video.muted) {
+                // Muted icon (crossed out)
+                muteBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
+                showNotification('Muted');
+            } else {
+                // Volume icon
+                muteBtn.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+                showNotification('Unmuted');
+            }
+        }
+
+        // Time input validation
+        hoursInput.addEventListener('input', () => {
+            if (hoursInput.value < 0) hoursInput.value = 0;
+            if (hoursInput.value > 99) hoursInput.value = 99;
+        });
+
+        minutesInput.addEventListener('input', () => {
+            if (minutesInput.value < 0) minutesInput.value = 0;
+            if (minutesInput.value > 59) minutesInput.value = 59;
+        });
+
+        secondsInput.addEventListener('input', () => {
+            if (secondsInput.value < 0) secondsInput.value = 0;
+            if (secondsInput.value > 59) secondsInput.value = 59;
+        });
+
+        // Go to specific time
+        gotoTimeBtn.addEventListener('click', gotoTime);
+
+        function gotoTime() {
+            const hours = parseInt(hoursInput.value) || 0;
+            const minutes = parseInt(minutesInput.value) || 0;
+            const seconds = parseInt(secondsInput.value) || 0;
+
+            const totalSeconds = hours * 3600 + minutes * 60 + seconds;
+
+            if (totalSeconds > video.duration) {
+                showNotification('Invalid time');
+                return;
+            }
+
+            video.currentTime = totalSeconds;
+            // Pad inputs for display
+            /*
+            hoursInput.value = hours.toString().padStart(2, '0');
+            minutesInput.value = minutes.toString().padStart(2, '0');
+            secondsInput.value = seconds.toString().padStart(2, '0');
+            */
+            showNotification(`Jump to ${hours}:${minutes}:${seconds}`);
+        }
+
+        // Allow Enter key to jump to time
+        [hoursInput, minutesInput, secondsInput].forEach(input => {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    gotoTime();
+                }
+            });
+        });
+
+        // Progress bar click & drag
+        let isDragging = false;
+
+        function seekToPosition(e) {
+            if (!video.src) return;
+            const rect = progressContainer.getBoundingClientRect();
+            const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            video.currentTime = percent * video.duration;
+        }
+
+        progressContainer.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            seekToPosition(e);
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                seekToPosition(e);
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+
+        // Touch support for mobile
+        progressContainer.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            seekToPosition(e.touches[0]);
+        });
+
+        document.addEventListener('touchmove', (e) => {
+            if (isDragging) {
+                seekToPosition(e.touches[0]);
+            }
+        });
+
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+        // Screenshot
+        screenshotBtn.addEventListener('click', takeScreenshot);
+
+        function takeScreenshot() {
+            if (!video.src || (video.paused && video.currentTime === 0)) {
+                showNotification('Nothing to capture');
+                return;
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                // Use original filename base if possible, else default
+                let baseName = 'screenshot';
+                if (videoFile.files[0]) {
+                    baseName = videoFile.files[0].name.replace(/\.[^/.]+$/, "");
+                }
+
+                const timestamp = formatTime(video.currentTime).replace(':', '-');
+                a.href = url;
+                a.download = `${baseName}_${timestamp}.png`;
+                a.click();
+                URL.revokeObjectURL(url);
+
+                showNotification('Screenshot saved');
+            }, 'image/png');
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (!video.src) return;
+            if (e.target.tagName === 'INPUT') return;
+
+            switch (e.key.toLowerCase()) {
+                case ' ':
+                    e.preventDefault();
+                    togglePlayPause();
+                    break;
+                case 'arrowleft':
+                    e.preventDefault();
+                    video.currentTime = Math.max(0, video.currentTime - 10);
+                    showNotification('-10s');
+                    break;
+                case 'arrowright':
+                    e.preventDefault();
+                    video.currentTime = Math.min(video.duration, video.currentTime + 10);
+                    showNotification('+10s');
+                    break;
+                case 's':
+                    e.preventDefault();
+                    takeScreenshot();
+                    break;
+                case 'm':
+                    e.preventDefault();
+                    toggleMute();
+                    break;
+                case 'f':
+                    e.preventDefault();
+                    if (video.requestFullscreen) {
+                        video.requestFullscreen();
+                    } else if (video.webkitRequestFullscreen) {
+                        video.webkitRequestFullscreen();
+                    }
+                    break;
+            }
+        });
+
+        // Show notification
+        let notificationTimeout;
+        function showNotification(message) {
+            // Update icon/text
+            // Simple text notification for now. For icons we could pass HTML.
+            notification.textContent = message;
+            notification.classList.add('show');
+
+            clearTimeout(notificationTimeout);
+            notificationTimeout = setTimeout(() => {
+                notification.classList.remove('show');
+            }, 2000);
+        }
+    </script>
+</body>
+
+</html>
