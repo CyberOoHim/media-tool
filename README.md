@@ -43,29 +43,11 @@ npm run dev
 
 Then `npm run typecheck` and `npm run build` before a release.
 
-## GitHub Actions deploy (Vercel)
+## GitHub Actions
 
-This repo ships two workflows:
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs `npm ci`, typecheck, and a production build on every push and pull request. No secrets. No Vercel.
 
-- [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) — typecheck + production build on every push and PR
-- [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml) — production deploy to Vercel on `main` (and manual **Run workflow**)
-
-### One-time Vercel secrets
-
-1. Create a Vercel project linked to this private repo (or an empty project; Actions will deploy into it).
-2. In Vercel → Account Settings → Tokens, create a token.
-3. Copy the **Organization ID** and **Project ID** from the project settings (`.vercel/project.json` after `vercel link`, or the Vercel dashboard URL).
-4. In GitHub → **Settings → Secrets and variables → Actions**, add:
-
-| Secret | Value |
-| --- | --- |
-| `VERCEL_TOKEN` | Vercel access token |
-| `VERCEL_ORG_ID` | Vercel org / team id |
-| `VERCEL_PROJECT_ID` | Vercel project id |
-
-Push to `main` (or run **Deploy** manually). CI still runs even if deploy secrets are missing; deploy will fail with a setup message until they are set.
-
-Alternatively, skip the deploy workflow and use Vercel’s GitHub integration — it will build with `npm run build` (Nitro `vercel` preset).
+Host the built app wherever you like (`npm run build` uses the Nitro Vercel preset if you later connect that host yourself).
 
 ## Layout (for contributors)
 
