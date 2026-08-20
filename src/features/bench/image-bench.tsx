@@ -1,15 +1,13 @@
 import {
-  Check,
   Copy,
   Download,
   ExternalLink,
   ImageIcon,
   RefreshCw,
   RotateCcw,
-  Sparkles,
   Upload,
 } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";

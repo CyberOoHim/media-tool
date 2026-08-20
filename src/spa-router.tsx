@@ -1,4 +1,3 @@
-import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
@@ -18,12 +17,10 @@ const rootRoute = createRootRoute({
     return (
       <>
         <PreviewHostBridge />
-        <AuthProvider>
-          <TooltipProvider>
-            <Outlet />
-            <Toaster position="bottom-center" />
-          </TooltipProvider>
-        </AuthProvider>
+        <TooltipProvider>
+          <Outlet />
+          <Toaster position="bottom-center" />
+        </TooltipProvider>
       </>
     );
   },

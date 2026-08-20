@@ -64,7 +64,7 @@ src/features/bench    Image optimizer UI
 src/features/strip    Session capture gallery
 src/features/media    Shared types, store, compress / crop / clipboard
 src/components        Shell + UI primitives
-src/routes            /  /player  /bench  /login
+src/routes            /  /player  /bench
 refs/                 Original HTML tools
 ```
 

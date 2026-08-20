@@ -11,9 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BenchRouteImport } from './routes/bench'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as PlayerRouteImport } from './routes/player'
-import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -25,58 +23,40 @@ const BenchRoute = BenchRouteImport.update({
   path: '/bench',
   getParentRoute: () => rootRouteImport,
 } as any)
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PlayerRoute = PlayerRouteImport.update({
   id: '/player',
   path: '/player',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
-  id: '/api/auth/$',
-  path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/bench': typeof BenchRoute
-  '/login': typeof LoginRoute
   '/player': typeof PlayerRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/bench': typeof BenchRoute
-  '/login': typeof LoginRoute
   '/player': typeof PlayerRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/bench': typeof BenchRoute
-  '/login': typeof LoginRoute
   '/player': typeof PlayerRoute
-  '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/bench' | '/login' | '/player' | '/api/auth/$'
+  fullPaths: '/' | '/bench' | '/player'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/bench' | '/login' | '/player' | '/api/auth/$'
-  id: '__root__' | '/' | '/bench' | '/login' | '/player' | '/api/auth/$'
+  to: '/' | '/bench' | '/player'
+  id: '__root__' | '/' | '/bench' | '/player'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BenchRoute: typeof BenchRoute
-  LoginRoute: typeof LoginRoute
   PlayerRoute: typeof PlayerRoute
-  ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -95,25 +75,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BenchRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/player': {
       id: '/player'
       path: '/player'
       fullPath: '/player'
       preLoaderRoute: typeof PlayerRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/auth/$': {
-      id: '/api/auth/$'
-      path: '/api/auth/$'
-      fullPath: '/api/auth/$'
-      preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -122,9 +88,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BenchRoute: BenchRoute,
-  LoginRoute: LoginRoute,
   PlayerRoute: PlayerRoute,
-  ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -2,7 +2,6 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Download, Film, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/layout/panel";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { formatTime } from "@/features/media/format";

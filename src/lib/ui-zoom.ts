@@ -55,7 +55,9 @@ export function getSavedZoom(): number {
         return parsed;
       }
     }
-  } catch {}
+  } catch {
+    // ignore
+  }
   return ZOOM_DEFAULT;
 }
 

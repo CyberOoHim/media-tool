@@ -1,4 +1,4 @@
-import { Minus, Plus, RotateCcw, Type, ZoomIn, ZoomOut } from "lucide-react";
+import { Minus, Plus, RotateCcw, Type } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
