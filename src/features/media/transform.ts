@@ -5,7 +5,7 @@ export type TransformState = {
   zoom: number; // 1.0 to 4.0
   panX: number; // offset in % (-100 to 100)
   panY: number; // offset in % (-100 to 100)
-  rotation: number; // 0 to 360 degrees (continuous)
+  rotation: number; // -180 to 180 degrees (continuous)
   flipH: boolean; // horizontal mirror
   flipV: boolean; // vertical mirror
   cropPreset: CropPresetId;
@@ -24,7 +24,7 @@ export const DEFAULT_TRANSFORM: TransformState = {
 };
 
 export function hasActiveTransform(t: TransformState): boolean {
-  const normRot = ((t.rotation % 360) + 360) % 360;
+  const normRot = normalizeRotation(t.rotation);
   return (
     t.zoom !== 1 ||
     t.panX !== 0 ||
@@ -43,7 +43,11 @@ export function getTransformCss(t: TransformState): string {
 }
 
 export function normalizeRotation(deg: number): number {
-  const norm = ((deg % 360) + 360) % 360;
+  if (!Number.isFinite(deg)) return 0;
+  let norm = deg % 360;
+  if (norm > 180) norm -= 360;
+  if (norm < -180) norm += 360;
+  if (Object.is(norm, -0)) norm = 0;
   return Number(norm.toFixed(1));
 }
 
@@ -68,7 +72,7 @@ export function calculateOrientedDimensions(
   srcH: number,
   rotation: number,
 ): { width: number; height: number } {
-  const rad = ((rotation % 360) * Math.PI) / 180;
+  const rad = (rotation * Math.PI) / 180;
   const absCos = Math.abs(Math.cos(rad));
   const absSin = Math.abs(Math.sin(rad));
   return {

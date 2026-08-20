@@ -229,7 +229,9 @@ export function TransformControls({
               <RotateCw className="size-3" /> Rotate Angle
             </span>
             <span className="tabular text-foreground">
-              {Math.round(normalizeRotation(transform.rotation))}°
+              {Math.round(normalizeRotation(transform.rotation)) > 0
+                ? `+${Math.round(normalizeRotation(transform.rotation))}°`
+                : `${Math.round(normalizeRotation(transform.rotation))}°`}
             </span>
           </div>
 
@@ -247,8 +249,8 @@ export function TransformControls({
             </Hint>
 
             <Slider
-              min={0}
-              max={360}
+              min={-180}
+              max={180}
               step={1}
               value={[Math.round(normalizeRotation(transform.rotation))]}
               onValueChange={([v]) => onChange({ rotation: normalizeRotation(v ?? 0) })}
@@ -269,7 +271,7 @@ export function TransformControls({
           </div>
 
           <div className="flex justify-between gap-1 pt-0.5">
-            {[0, 90, 180, 270].map((deg) => (
+            {[-180, -90, 90, 180].map((deg) => (
               <Button
                 key={deg}
                 type="button"
@@ -278,7 +280,7 @@ export function TransformControls({
                 className="h-5 flex-1 px-0 text-[8px] font-mono font-bold"
                 onClick={() => onChange({ rotation: deg })}
               >
-                {deg}°
+                {deg > 0 ? `+${deg}°` : `${deg}°`}
               </Button>
             ))}
           </div>
