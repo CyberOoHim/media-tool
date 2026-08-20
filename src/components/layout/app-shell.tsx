@@ -2,6 +2,8 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Film, Image as ImageIcon, LayoutGrid, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-dialog";
+import { UiZoomControl } from "@/components/layout/ui-zoom-control";
+import { useUiZoomKeyboardShortcuts } from "@/lib/ui-zoom";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -12,6 +14,8 @@ const NAV = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  useUiZoomKeyboardShortcuts();
 
   useEffect(() => {
     const prevent = (event: DragEvent) => {
@@ -75,6 +79,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Header Controls */}
           <div className="flex items-center gap-2">
+            <UiZoomControl />
             <KeyboardShortcutsDialog />
 
             <div className="flex items-center gap-1 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/80 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground shadow-[1px_1px_0px_var(--color-border)]">

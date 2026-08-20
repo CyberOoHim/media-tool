@@ -56,6 +56,11 @@ function RootDocument() {
     <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var z=localStorage.getItem("video_tool_ui_zoom");if(z){var v=parseInt(z,10);if(v>=75&&v<=300){document.documentElement.style.zoom=(v/100);document.documentElement.style.setProperty("--ui-zoom",(v/100));}}}catch(e){}`,
+          }}
+        />
       </head>
       <body>
         <PreviewHostBridge />

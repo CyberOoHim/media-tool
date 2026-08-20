@@ -49,6 +49,10 @@
   --radius: 8px;
 }
 
+:root {
+  --ui-zoom: 1;
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
