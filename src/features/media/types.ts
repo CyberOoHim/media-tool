@@ -9,6 +9,9 @@ export type CropPresetId =
   | "square"
   | "16:9"
   | "4:3"
+  | "3:4"
+  | "3:2"
+  | "2:3"
   | "9:16"
   | "custom";
 
@@ -24,8 +27,11 @@ export const CROP_PRESETS: readonly CropPreset[] = [
   { id: "og", label: "Open Graph (1200×630)" },
   { id: "yt-thumb", label: "YouTube Thumb (1280×720)" },
   { id: "square", label: "Square (1:1)" },
-  { id: "4:3", label: "Standard (4:3)" },
   { id: "16:9", label: "Widescreen (16:9)" },
+  { id: "4:3", label: "Standard (4:3)" },
+  { id: "3:4", label: "Vertical (3:4)" },
+  { id: "3:2", label: "Classic Photo (3:2)" },
+  { id: "2:3", label: "Portrait Photo (2:3)" },
   { id: "9:16", label: "Portrait (9:16)" },
   { id: "custom", label: "Custom..." },
 ] as const;

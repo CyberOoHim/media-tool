@@ -57,6 +57,12 @@ export function getCropAspectRatio(
       return 16 / 9;
     case "4:3":
       return 4 / 3;
+    case "3:4":
+      return 3 / 4;
+    case "3:2":
+      return 3 / 2;
+    case "2:3":
+      return 2 / 3;
     case "9:16":
       return 9 / 16;
     case "custom": {
@@ -100,6 +106,12 @@ export function resolveCropTarget(
       return fitRatio(safeW, safeH, 16 / 9);
     case "4:3":
       return fitRatio(safeW, safeH, 4 / 3);
+    case "3:4":
+      return fitRatio(safeW, safeH, 3 / 4);
+    case "3:2":
+      return fitRatio(safeW, safeH, 3 / 2);
+    case "2:3":
+      return fitRatio(safeW, safeH, 2 / 3);
     case "9:16":
       return fitRatio(safeW, safeH, 9 / 16);
     case "custom": {

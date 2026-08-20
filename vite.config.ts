@@ -46,7 +46,12 @@ export default defineConfig(({ command, isPreview }) => ({
     port: 3000,
     strictPort: true,
   },
-  resolve: { tsconfigPaths: true },
+  resolve: {
+    alias: {
+      "h3-v2": "h3",
+    },
+    tsconfigPaths: true,
+  },
   plugins: [
     pgliteBootstrapPlugin(),
     // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
