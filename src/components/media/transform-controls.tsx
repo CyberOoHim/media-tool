@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Hint } from "@/components/ui/tooltip";
@@ -30,14 +31,16 @@ import {
 import { cn } from "@/lib/utils";
 
 const QUICK_ASPECTS: { id: CropPresetId; label: string }[] = [
-  { id: "none", label: "Full" },
-  { id: "16:9", label: "16:9" },
-  { id: "4:3", label: "4:3" },
-  { id: "square", label: "1:1" },
-  { id: "9:16", label: "9:16" },
+  { id: "none", label: "Full / None" },
+  { id: "16:9", label: "16:9 Wide" },
+  { id: "4:3", label: "4:3 Standard" },
+  { id: "square", label: "1:1 Square" },
+  { id: "9:16", label: "9:16 Portrait" },
   { id: "yt-thumb", label: "YT 720p" },
   { id: "og", label: "OG Card" },
   { id: "std-banner", label: "Banner" },
+  { id: "wide-banner", label: "Wide Banner" },
+  { id: "custom", label: "Custom" },
 ];
 
 export function TransformControls({
@@ -375,6 +378,43 @@ export function TransformControls({
               );
             })}
           </div>
+
+          {/* Custom Width x Height Inputs */}
+          {transform.cropPreset === "custom" ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-border bg-card p-2">
+              <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground">
+                Custom Dimensions:
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="number"
+                  min={50}
+                  max={4096}
+                  placeholder="Width"
+                  value={transform.customWidth ?? ""}
+                  onChange={(e) => {
+                    const val = Number.parseInt(e.target.value, 10);
+                    onChange({ customWidth: Number.isNaN(val) ? undefined : val });
+                  }}
+                  className="h-6.5 w-20 font-mono text-xs"
+                />
+                <span className="text-xs font-bold text-foreground">×</span>
+                <Input
+                  type="number"
+                  min={50}
+                  max={4096}
+                  placeholder="Height"
+                  value={transform.customHeight ?? ""}
+                  onChange={(e) => {
+                    const val = Number.parseInt(e.target.value, 10);
+                    onChange({ customHeight: Number.isNaN(val) ? undefined : val });
+                  }}
+                  className="h-6.5 w-20 font-mono text-xs"
+                />
+                <span className="font-mono text-[10px] text-muted-foreground">px</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

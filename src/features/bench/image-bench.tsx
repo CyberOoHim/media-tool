@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { copyBlobToClipboard, imageFileFromClipboard } from "@/features/media/clipboard";
+import { getCropAspectRatio } from "@/features/media/crop";
 import { extFromMime, fileStem, formatFileSize } from "@/features/media/format";
 import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
@@ -601,15 +602,56 @@ function PreviewCard({
         )}
       >
         {/* Visual Safe-Area / Crop Framing Mask */}
-        {transform && transform.cropPreset && transform.cropPreset !== "none" ? (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-            <div className="relative border-2 border-dashed border-signal/70 bg-signal/5 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] w-4/5 aspect-video max-h-[80%] max-w-[85%] flex items-start justify-end p-1">
-              <span className="rounded-xs bg-signal px-1 py-0.2 font-mono text-[8px] font-bold uppercase text-foreground">
-                {transform.cropPreset}
-              </span>
+        {transform && transform.cropPreset && transform.cropPreset !== "none" ? (() => {
+          const cropRatio =
+            getCropAspectRatio(
+              transform.cropPreset,
+              transform.customWidth,
+              transform.customHeight,
+              16,
+              9,
+            ) ?? (16 / 9);
+
+          const presetLabel =
+            CROP_PRESETS.find((p) => p.id === transform.cropPreset)?.label ??
+            transform.cropPreset;
+
+          return (
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-2 sm:p-3">
+              <div
+                className="relative flex items-start justify-between border-2 border-dashed border-signal bg-signal/5 p-1 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] transition-all duration-150"
+                style={{
+                  aspectRatio: `${cropRatio}`,
+                  maxWidth: "92%",
+                  maxHeight: "88%",
+                  ...(cropRatio >= 1
+                    ? { width: "88%", height: "auto" }
+                    : { height: "88%", width: "auto" }),
+                }}
+              >
+                {/* Rule of thirds grid lines */}
+                <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-25">
+                  <div className="border-r border-b border-dashed border-signal" />
+                  <div className="border-r border-b border-dashed border-signal" />
+                  <div className="border-b border-dashed border-signal" />
+                  <div className="border-r border-b border-dashed border-signal" />
+                  <div className="border-r border-b border-dashed border-signal" />
+                  <div className="border-b border-dashed border-signal" />
+                  <div className="border-r border-dashed border-signal" />
+                  <div className="border-r border-dashed border-signal" />
+                  <div />
+                </div>
+
+                <span className="relative z-10 rounded-xs bg-signal px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-foreground shadow-xs">
+                  {presetLabel}
+                </span>
+                <span className="relative z-10 rounded-xs bg-black/80 px-1 py-0.5 font-mono text-[8px] font-semibold text-signal uppercase">
+                  CROP
+                </span>
+              </div>
             </div>
-          </div>
-        ) : null}
+          );
+        })() : null}
 
         {src ? (
           <img

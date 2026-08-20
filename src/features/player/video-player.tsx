@@ -26,10 +26,12 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Hint } from "@/components/ui/tooltip";
 import { copyBlobToClipboard } from "@/features/media/clipboard";
+import { getCropAspectRatio, resolveCropTarget } from "@/features/media/crop";
 import { formatFileSize, formatTime } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
 import {
   DEFAULT_TRANSFORM,
+  calculateOrientedDimensions,
   clampPan,
   clampZoom,
   getTransformCss,
@@ -37,6 +39,7 @@ import {
   rotateClockwise,
   type TransformState,
 } from "@/features/media/transform";
+import { CROP_PRESETS } from "@/features/media/types";
 import { cn } from "@/lib/utils";
 import { captureVideoFrame } from "./capture-frame";
 import { FRAME_STEP, PLAYBACK_RATES, nextRate } from "./rates";
@@ -524,15 +527,87 @@ export function VideoPlayer() {
             </div>
 
             {/* Visual Safe-Area / Crop Framing Mask */}
-            {videoTransform.cropPreset !== "none" ? (
-              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
-                <div className="relative border-2 border-dashed border-signal/70 bg-signal/5 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] w-4/5 aspect-video max-h-[80%] max-w-[85%] flex items-start justify-end p-1">
-                  <span className="rounded-xs bg-signal px-1 py-0.2 font-mono text-[8px] font-bold uppercase text-foreground">
-                    {videoTransform.cropPreset}
-                  </span>
+            {videoTransform.cropPreset !== "none" ? (() => {
+              const oriented = videoDims
+                ? calculateOrientedDimensions(videoDims.w, videoDims.h, videoTransform.rotation)
+                : { width: 1920, height: 1080 };
+
+              const cropRatio =
+                getCropAspectRatio(
+                  videoTransform.cropPreset,
+                  videoTransform.customWidth,
+                  videoTransform.customHeight,
+                  oriented.width,
+                  oriented.height,
+                ) ?? (16 / 9);
+
+              const cropTarget = videoDims
+                ? resolveCropTarget(
+                    oriented.width,
+                    oriented.height,
+                    videoTransform.cropPreset,
+                    videoTransform.customWidth,
+                    videoTransform.customHeight,
+                  )
+                : null;
+
+              const presetLabel =
+                CROP_PRESETS.find((p) => p.id === videoTransform.cropPreset)?.label ??
+                videoTransform.cropPreset;
+
+              return (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-3 sm:p-5">
+                  <div
+                    className="relative flex items-start justify-between border-2 border-dashed border-signal bg-signal/5 p-1.5 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] transition-all duration-150"
+                    style={{
+                      aspectRatio: `${cropRatio}`,
+                      maxWidth: "92%",
+                      maxHeight: "88%",
+                      ...(cropRatio >= 1
+                        ? { width: "88%", height: "auto" }
+                        : { height: "88%", width: "auto" }),
+                    }}
+                  >
+                    {/* Rule of thirds grid lines */}
+                    <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-25">
+                      <div className="border-r border-b border-dashed border-signal" />
+                      <div className="border-r border-b border-dashed border-signal" />
+                      <div className="border-b border-dashed border-signal" />
+                      <div className="border-r border-b border-dashed border-signal" />
+                      <div className="border-r border-b border-dashed border-signal" />
+                      <div className="border-b border-dashed border-signal" />
+                      <div className="border-r border-dashed border-signal" />
+                      <div className="border-r border-dashed border-signal" />
+                      <div />
+                    </div>
+
+                    {/* Center alignment crosshair */}
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-25">
+                      <div className="h-4 w-[1px] bg-signal" />
+                      <div className="h-[1px] w-4 bg-signal absolute" />
+                    </div>
+
+                    {/* Framing Tag Badge with Dimensions */}
+                    <div className="relative z-10 flex flex-wrap items-center gap-1">
+                      <span className="rounded-xs bg-signal px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase text-foreground shadow-xs">
+                        {presetLabel}
+                      </span>
+                      {cropTarget ? (
+                        <span className="rounded-xs bg-black/80 px-1 py-0.5 font-mono text-[8px] font-semibold text-[#fceee2]">
+                          {cropTarget.width} × {cropTarget.height}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="relative z-10">
+                      <span className="rounded-xs bg-black/80 px-1 py-0.5 font-mono text-[8px] font-semibold text-signal uppercase">
+                        CROP FRAME
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              );
+            })() : null}
 
             {/* Shutter Flash Layer */}
             {flashing ? (
@@ -934,6 +1009,7 @@ export function VideoPlayer() {
             {hasActiveTransform(videoTransform) ? (
               <span className="text-signal font-bold">
                 ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot: {Math.round(videoTransform.rotation)}°
+                {videoTransform.cropPreset !== "none" ? ` | Crop: ${videoTransform.cropPreset}` : ""}
               </span>
             ) : null}
           </div>
