@@ -11,14 +11,14 @@ function SelectTrigger({ className, children, ...props }: ComponentProps<typeof 
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "flex h-10 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-input bg-background px-3 py-2 font-mono text-sm text-foreground transition-colors hover:border-foreground/30 focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+        "flex h-9 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border-2 border-border bg-card px-3 py-1.5 font-mono text-xs font-semibold uppercase tracking-wider text-foreground shadow-[2px_2px_0px_var(--color-border)] transition-all hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
         className,
       )}
       {...props}
     >
       {children}
       <SelectPrimitive.Icon asChild>
-        <ChevronDown className="size-4 opacity-60" />
+        <ChevronDown className="size-4 opacity-80" />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
   );
@@ -35,14 +35,14 @@ function SelectContent({
       <SelectPrimitive.Content
         position={position}
         className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border border-border bg-popover text-popover-foreground shadow-md",
+          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-[var(--radius-md)] border-2 border-border bg-card text-foreground shadow-[4px_4px_0px_var(--color-border)]",
           position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,
         )}
         {...props}
       >
         <SelectPrimitive.Viewport
-          className={cn("p-1", position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]")}
+          className={cn("p-1.5", position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)]")}
         >
           {children}
         </SelectPrimitive.Viewport>
@@ -55,14 +55,14 @@ function SelectItem({ className, children, ...props }: ComponentProps<typeof Sel
   return (
     <SelectPrimitive.Item
       className={cn(
-        "relative flex w-full cursor-pointer select-none items-center rounded-[var(--radius-sm)] py-2 pl-8 pr-2 font-mono text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "relative flex w-full cursor-pointer select-none items-center rounded-[var(--radius-sm)] py-1.5 pl-8 pr-2 font-mono text-xs font-medium uppercase tracking-wider outline-none transition-colors focus:bg-primary focus:text-primary-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}
       {...props}
     >
       <span className="absolute left-2 flex size-4 items-center justify-center">
         <SelectPrimitive.ItemIndicator>
-          <Check className="size-3.5" />
+          <Check className="size-3.5 stroke-[3]" />
         </SelectPrimitive.ItemIndicator>
       </span>
       <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>

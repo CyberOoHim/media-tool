@@ -42,9 +42,9 @@ export function DropZone({ accept, onFiles, disabled, className, children }: Dro
       role="button"
       tabIndex={disabled ? -1 : 0}
       className={cn(
-        "relative cursor-pointer rounded-[var(--radius-md)] border-2 border-dashed border-border transition-colors duration-150",
-        over && "border-signal bg-signal/5",
-        disabled && "cursor-default",
+        "relative cursor-pointer rounded-[var(--radius-md)] border-2 border-dashed border-border bg-secondary/30 transition-all duration-100 hover:bg-secondary/60 hover:border-foreground/80",
+        over && "border-primary bg-primary/10 scale-[0.99]",
+        disabled && "cursor-default opacity-50",
         className,
       )}
       onClick={() => {

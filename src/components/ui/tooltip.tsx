@@ -15,7 +15,7 @@ function TooltipContent({ className, sideOffset = 6, ...props }: ComponentProps<
       <TooltipPrimitive.Content
         sideOffset={sideOffset}
         className={cn(
-          "z-50 overflow-hidden rounded-[var(--radius-sm)] border border-border bg-popover px-2.5 py-1.5 font-mono text-xs text-popover-foreground shadow-md",
+          "z-50 overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-card px-2.5 py-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-foreground shadow-[2px_2px_0px_var(--color-border)]",
           className,
         )}
         {...props}

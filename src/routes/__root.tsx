@@ -36,7 +36,7 @@ export const Route = createRootRoute({
         name: "description",
         content: "Local video player, frame capture, and image optimizer. Everything stays in your browser.",
       },
-      { name: "theme-color", content: "#0a0c10" },
+      { name: "theme-color", content: "#fceee2" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: assetUrl("favicon.svg") },

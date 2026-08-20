@@ -37,7 +37,8 @@ type MediaState = {
   process: () => Promise<void>;
   downloadOutput: () => void;
   downloadCapture: (id: string) => void;
-  setSettings: (partial: Partial<BenchSettings>) => void;
+  downloadAllCaptures: () => void;
+  setSettings: (partial: Partial<BenchSettings>, autoRun?: boolean) => void;
   clearBench: () => void;
   resetAll: () => void;
   setError: (message: string | null) => void;
@@ -46,6 +47,8 @@ type MediaState = {
 function nextId(): string {
   return `cap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
+
+let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useMediaStore = create<MediaState>((set, get) => ({
   video: null,
@@ -101,6 +104,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         output: null,
         error: null,
       });
+      // Auto-process newly loaded image
+      void get().process();
     } catch (err) {
       revokeQuiet(objectUrl);
       set({
@@ -150,6 +155,9 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       };
     });
 
+    // Auto-process the newly captured frame immediately
+    void get().process();
+
     return id;
   },
 
@@ -172,6 +180,8 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       output: null,
       error: null,
     });
+    // Auto-process opened capture
+    void get().process();
   },
 
   removeCapture: (id) => {
@@ -249,8 +259,24 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     void downloadBlob(item.blob, item.fileName);
   },
 
-  setSettings: (partial) => {
+  downloadAllCaptures: () => {
+    const { captures } = get();
+    if (!captures.length) return;
+    captures.forEach((item, index) => {
+      setTimeout(() => {
+        void downloadBlob(item.blob, item.fileName);
+      }, index * 200);
+    });
+  },
+
+  setSettings: (partial, autoRun = true) => {
     set((state) => ({ settings: { ...state.settings, ...partial } }));
+    if (autoRun && get().source) {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void get().process();
+      }, 150);
+    }
   },
 
   clearBench: () => {

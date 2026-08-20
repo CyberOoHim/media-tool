@@ -4,6 +4,7 @@ import {
   ChevronsRight,
   Copy,
   FastForward,
+  Layers,
   Maximize,
   Pause,
   Play,
@@ -32,6 +33,7 @@ import { FRAME_STEP, PLAYBACK_RATES, nextRate } from "./rates";
 
 export function VideoPlayer() {
   const videoSession = useMediaStore((s) => s.video);
+  const captures = useMediaStore((s) => s.captures);
   const loadVideo = useMediaStore((s) => s.loadVideo);
   const captureFrame = useMediaStore((s) => s.captureFrame);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -43,7 +45,9 @@ export function VideoPlayer() {
   const [rate, setRate] = useState(1);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [videoDims, setVideoDims] = useState<{ w: number; h: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [flashing, setFlashing] = useState(false);
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("");
   const [seconds, setSeconds] = useState("");
@@ -57,7 +61,13 @@ export function VideoPlayer() {
     setPlaying(false);
     setCurrent(0);
     setDuration(0);
+    setVideoDims(null);
   }, [videoSession?.objectUrl]);
+
+  const triggerShutterFlash = () => {
+    setFlashing(true);
+    setTimeout(() => setFlashing(false), 350);
+  };
 
   const togglePlay = useCallback(() => {
     const el = videoRef.current;
@@ -94,6 +104,7 @@ export function VideoPlayer() {
       toast("Nothing to capture");
       return;
     }
+    triggerShutterFlash();
     try {
       const frame = await captureVideoFrame(el);
       captureFrame({
@@ -101,9 +112,37 @@ export function VideoPlayer() {
         timestampSec: el.currentTime,
         videoName: session.fileName,
       });
-      toast.success("Frame captured");
+      toast.success(`Snapped frame @ ${formatTime(el.currentTime, true)} ➜ Bench`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Capture failed");
+    }
+  }, [captureFrame]);
+
+  const burstCapture = useCallback(async () => {
+    const el = videoRef.current;
+    const session = useMediaStore.getState().video;
+    if (!el || !session) {
+      toast("Nothing to capture");
+      return;
+    }
+    triggerShutterFlash();
+    try {
+      // Capture 3 frames in quick succession
+      for (let i = 0; i < 3; i++) {
+        const frame = await captureVideoFrame(el);
+        captureFrame({
+          ...frame,
+          timestampSec: el.currentTime,
+          videoName: session.fileName,
+        });
+        if (i < 2) {
+          el.currentTime = Math.min(el.duration, el.currentTime + FRAME_STEP * 2);
+          await new Promise((r) => setTimeout(r, 80));
+        }
+      }
+      toast.success("Burst captured 3 frames ➜ Bench");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Burst capture failed");
     }
   }, [captureFrame]);
 
@@ -113,10 +152,11 @@ export function VideoPlayer() {
       toast("Nothing to capture");
       return;
     }
+    triggerShutterFlash();
     try {
       const frame = await captureVideoFrame(el);
       await copyBlobToClipboard(frame.blob);
-      toast.success("Frame copied");
+      toast.success("Copied frame to clipboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Copy failed");
     }
@@ -178,6 +218,12 @@ export function VideoPlayer() {
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
+      if (event.shiftKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void burstCapture();
+        return;
+      }
+
       switch (event.key.toLowerCase()) {
         case " ":
           event.preventDefault();
@@ -233,7 +279,7 @@ export function VideoPlayer() {
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [applyRate, capture, copyFrame, fullscreen, rate, seekBy, toggleMute, togglePlay, videoSession]);
+  }, [applyRate, burstCapture, capture, copyFrame, fullscreen, rate, seekBy, toggleMute, togglePlay, videoSession]);
 
   const gotoTyped = () => {
     const el = videoRef.current;
@@ -247,136 +293,222 @@ export function VideoPlayer() {
       return;
     }
     el.currentTime = total;
-    toast(`Jump to ${formatTime(total, true)}`);
+    toast(`Jumped to ${formatTime(total, true)}`);
   };
 
   const progress = duration > 0 ? (current / duration) * 100 : 0;
   const disabled = !ready;
 
+  // Deck status LED text
+  const deckStatus = !videoSession
+    ? "NO MEDIA"
+    : !ready
+      ? "LOADING"
+      : playing
+        ? "PLAYING"
+        : "STANDBY";
+
+  const deckStatusVariant = playing ? "success" : hasVideo ? "signal" : "default";
+
   return (
     <Panel
-      title="Player"
+      title="Deck-1 // Video Player"
+      status={deckStatus}
+      statusVariant={deckStatusVariant}
       action={
         videoSession ? (
-          <span className="truncate font-mono text-xs text-muted-foreground">{videoSession.fileName}</span>
+          <div className="flex items-center gap-2">
+            <span className="max-w-[140px] truncate font-mono text-[11px] font-bold text-foreground sm:max-w-[220px]">
+              {videoSession.fileName}
+            </span>
+            <DropZone
+              accept="video/mp4,video/*"
+              onFiles={(files) => {
+                loadVideo(files[0]!);
+                toast.success("Video loaded");
+              }}
+              className="border-0 bg-transparent px-0 py-0 hover:bg-transparent"
+            >
+              <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]">
+                Eject / Swap
+              </Button>
+            </DropZone>
+          </div>
         ) : (
-          <Badge>No file selected</Badge>
+          <Badge variant="outline">No Tape Inserted</Badge>
         )
       }
     >
-      {videoSession ? (
-        <div
-          className="relative flex min-h-[220px] items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-theater lg:min-h-[300px]"
-          onDragOver={(event) => {
-            if (event.dataTransfer.types.includes("Files")) event.preventDefault();
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            const file = event.dataTransfer.files[0];
-            if (file?.type.startsWith("video/")) {
-              loadVideo(file);
-              toast.success("Video loaded");
-            }
-          }}
-        >
-          <video
-            ref={videoRef}
-            src={videoSession.objectUrl}
-            className="max-h-[50vh] w-full bg-black object-contain lg:max-h-[56vh]"
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onEnded={() => setPlaying(false)}
-            onLoadedMetadata={(event) => {
-              setDuration(event.currentTarget.duration);
-              setReady(true);
-              event.currentTarget.volume = volume;
-              event.currentTarget.playbackRate = rate;
+      {/* Video Screen Bezel */}
+      <div className="relative overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-theater shadow-inner">
+        {videoSession ? (
+          <div
+            className="relative flex min-h-[240px] items-center justify-center lg:min-h-[320px]"
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes("Files")) event.preventDefault();
             }}
-            onTimeUpdate={(event) => {
-              const el = event.currentTarget;
-              if (el.duration - el.currentTime < 0.1) setCurrent(el.duration);
-              else setCurrent(el.currentTime);
+            onDrop={(event) => {
+              event.preventDefault();
+              const file = event.dataTransfer.files[0];
+              if (file?.type.startsWith("video/")) {
+                loadVideo(file);
+                toast.success("Video loaded");
+              }
             }}
-            onVolumeChange={(event) => {
-              setMuted(event.currentTarget.muted);
-              setVolume(event.currentTarget.volume);
-            }}
-          />
-        </div>
-      ) : (
-        <DropZone
-          accept="video/mp4,video/*"
-          onFiles={(files) => {
-            loadVideo(files[0]!);
-            toast.success("Video loaded");
-          }}
-          className="flex min-h-[220px] flex-col items-center justify-center gap-2 bg-theater px-6 py-10 text-center lg:min-h-[300px]"
-        >
-          <Upload className="size-8 text-signal" />
-          <p className="font-mono text-sm text-foreground">Click or drag a video file</p>
-          <p className="text-xs text-muted-foreground">MP4, WebM, and other browser-playable formats</p>
-        </DropZone>
-      )}
+          >
+            {/* Retro Bezel Overlay Frame Corners */}
+            <div className="pointer-events-none absolute inset-2 z-10 flex flex-col justify-between text-muted/30 font-mono text-[10px]">
+              <div className="flex justify-between">
+                <span>⌜ VCR-REC</span>
+                <span>CH-01 ⌝</span>
+              </div>
+              <div className="flex justify-between">
+                <span>⌞ {rate}× SPEED</span>
+                <span>STILL-CAPTURE ⌟</span>
+              </div>
+            </div>
 
-      {videoSession ? (
-        <div className="mt-2 flex justify-end">
+            {/* Shutter Flash Layer */}
+            {flashing ? (
+              <div className="pointer-events-none absolute inset-0 z-30 bg-white/90 animate-shutter" />
+            ) : null}
+
+            <video
+              ref={videoRef}
+              src={videoSession.objectUrl}
+              className="max-h-[50vh] w-full bg-black object-contain lg:max-h-[56vh]"
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
+              onClick={togglePlay}
+              onLoadedMetadata={(event) => {
+                setDuration(event.currentTarget.duration);
+                setVideoDims({
+                  w: event.currentTarget.videoWidth,
+                  h: event.currentTarget.videoHeight,
+                });
+                setReady(true);
+                event.currentTarget.volume = volume;
+                event.currentTarget.playbackRate = rate;
+              }}
+              onTimeUpdate={(event) => {
+                const el = event.currentTarget;
+                if (el.duration - el.currentTime < 0.1) setCurrent(el.duration);
+                else setCurrent(el.currentTime);
+              }}
+              onVolumeChange={(event) => {
+                setMuted(event.currentTarget.muted);
+                setVolume(event.currentTarget.volume);
+              }}
+            />
+          </div>
+        ) : (
           <DropZone
             accept="video/mp4,video/*"
             onFiles={(files) => {
               loadVideo(files[0]!);
               toast.success("Video loaded");
             }}
-            className="border-0 px-0 py-0"
+            className="flex min-h-[240px] flex-col items-center justify-center gap-3 border-0 bg-transparent px-6 py-12 text-center lg:min-h-[320px]"
           >
-            <span className="font-mono text-xs text-signal underline-offset-4 hover:underline">Replace video</span>
+            <div className="grid size-14 place-items-center rounded-[var(--radius-sm)] border-2 border-border bg-signal text-foreground shadow-[2px_2px_0px_var(--color-border)]">
+              <Upload className="size-7" />
+            </div>
+            <div>
+              <p className="font-mono text-sm font-bold uppercase tracking-wider text-white">
+                Insert Video Tape / File
+              </p>
+              <p className="mt-1 font-mono text-xs text-muted-foreground">
+                Drag & drop MP4, WebM, MOV or click to browse
+              </p>
+            </div>
           </DropZone>
-        </div>
-      ) : null}
-
-      <div
-        ref={progressRef}
-        role="slider"
-        aria-valuemin={0}
-        aria-valuemax={duration || 0}
-        aria-valuenow={current}
-        aria-label="Seek"
-        tabIndex={disabled ? -1 : 0}
-        className={cn(
-          "group mt-4 h-4 cursor-pointer rounded-full bg-border",
-          disabled && "pointer-events-none opacity-50",
         )}
-        onMouseDown={(event) => {
-          setDragging(true);
-          seekFromClientX(event.clientX);
-        }}
-        onTouchStart={(event) => {
-          setDragging(true);
-          seekFromClientX(event.touches[0]!.clientX);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowLeft") seekBy(-2);
-          if (event.key === "ArrowRight") seekBy(2);
-        }}
-      >
+      </div>
+
+      {/* Retro Timeline & Scrubber with Capture Bookmark Pins */}
+      <div className="mt-3.5 space-y-1.5">
+        <div className="flex items-center justify-between text-[11px] font-mono font-semibold text-muted-foreground">
+          <span className="uppercase tracking-wider">Timeline Scrubber</span>
+          <span>{captures.length} Bookmark Pins</span>
+        </div>
+
         <div
-          className="relative h-full rounded-full bg-signal"
-          style={{ width: `${progress}%` }}
+          ref={progressRef}
+          role="slider"
+          aria-valuemin={0}
+          aria-valuemax={duration || 0}
+          aria-valuenow={current}
+          aria-label="Seek"
+          tabIndex={disabled ? -1 : 0}
+          className={cn(
+            "group relative h-5 cursor-pointer rounded-[var(--radius-sm)] border-2 border-border bg-secondary shadow-[1px_1px_0px_var(--color-border)] select-none",
+            disabled && "pointer-events-none opacity-50",
+          )}
+          onMouseDown={(event) => {
+            setDragging(true);
+            seekFromClientX(event.clientX);
+          }}
+          onTouchStart={(event) => {
+            setDragging(true);
+            seekFromClientX(event.touches[0]!.clientX);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") seekBy(-2);
+            if (event.key === "ArrowRight") seekBy(2);
+          }}
         >
-          <span className="absolute -right-2 top-1/2 size-3.5 -translate-y-1/2 rounded-full bg-foreground shadow transition-transform group-hover:scale-110" />
+          {/* Timeline Tick Marks Background */}
+          <div className="absolute inset-0 flex justify-between px-1 opacity-25 pointer-events-none">
+            {Array.from({ length: 11 }).map((_, i) => (
+              <span key={i} className="h-full w-[1px] bg-border" />
+            ))}
+          </div>
+
+          {/* Played Range Fill */}
+          <div
+            className="relative h-full bg-signal transition-all"
+            style={{ width: `${progress}%` }}
+          >
+            {/* Scrubber Playhead Handle */}
+            <span className="absolute -right-2 top-1/2 size-4 -translate-y-1/2 rounded-[var(--radius-sm)] border-2 border-border bg-primary shadow-[1px_1px_0px_var(--color-border)] transition-transform group-hover:scale-110" />
+          </div>
+
+          {/* Capture Timestamp Bookmark Pins */}
+          {duration > 0
+            ? captures.map((cap) => {
+                const pinPct = Math.min(100, Math.max(0, (cap.timestampSec / duration) * 100));
+                return (
+                  <button
+                    key={cap.id}
+                    type="button"
+                    title={`Captured @ ${formatTime(cap.timestampSec)} (Click to jump)`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      jumpTo(cap.timestampSec);
+                    }}
+                    className="absolute top-0 -ml-1 size-2.5 -translate-y-0.5 rounded-full border border-border bg-destructive hover:scale-150 transition-transform z-20"
+                    style={{ left: `${pinPct}%` }}
+                  />
+                );
+              })
+            : null}
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Hint label="Start">
+      {/* Main Transport Deck Controls & LCD Timecode */}
+      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/70 p-2.5 shadow-[2px_2px_0px_var(--color-border)]">
+        {/* Navigation Transport Controls */}
+        <div className="flex flex-wrap items-center gap-1">
+          <Hint label="Jump Start">
             <Button variant="outline" size="icon-sm" disabled={disabled} onClick={() => jumpTo(0)}>
               <ChevronsLeft />
             </Button>
           </Hint>
-          <Hint label="Rewind 10s">
+          <Hint label="Rewind 10s (←)">
             <Button
               variant="outline"
-              size="sm"
+              size="icon-sm"
               disabled={disabled}
               onClick={() => {
                 seekBy(-10);
@@ -384,10 +516,9 @@ export function VideoPlayer() {
               }}
             >
               <Rewind />
-              10s
             </Button>
           </Hint>
-          <Hint label="Previous frame">
+          <Hint label="Previous Frame (,)">
             <Button
               variant="outline"
               size="icon-sm"
@@ -400,11 +531,20 @@ export function VideoPlayer() {
               <SkipBack />
             </Button>
           </Hint>
-          <Button size="sm" disabled={disabled} onClick={togglePlay} className="min-w-20">
+
+          {/* Large Play/Pause Toggle */}
+          <Button
+            size="sm"
+            variant={playing ? "signal" : "default"}
+            disabled={disabled}
+            onClick={togglePlay}
+            className="min-w-22 gap-1.5 font-bold"
+          >
             {playing ? <Pause /> : <Play />}
             {playing ? "Pause" : "Play"}
           </Button>
-          <Hint label="Next frame">
+
+          <Hint label="Next Frame (.)">
             <Button
               variant="outline"
               size="icon-sm"
@@ -417,10 +557,10 @@ export function VideoPlayer() {
               <SkipForward />
             </Button>
           </Hint>
-          <Hint label="Forward 10s">
+          <Hint label="Forward 10s (→)">
             <Button
               variant="outline"
-              size="sm"
+              size="icon-sm"
               disabled={disabled}
               onClick={() => {
                 seekBy(10);
@@ -428,10 +568,9 @@ export function VideoPlayer() {
               }}
             >
               <FastForward />
-              10s
             </Button>
           </Hint>
-          <Hint label="End">
+          <Hint label="Jump End">
             <Button
               variant="outline"
               size="icon-sm"
@@ -440,7 +579,6 @@ export function VideoPlayer() {
                 const el = videoRef.current;
                 if (!el) return;
                 jumpTo(Math.max(0, el.duration - 0.001));
-                toast("Jump to end");
               }}
             >
               <ChevronsRight />
@@ -448,30 +586,25 @@ export function VideoPlayer() {
           </Hint>
         </div>
 
-        <p className="font-mono text-sm tabular text-muted-foreground">
-          <span className="text-foreground">{formatTime(current, longForm)}</span>
-          {" / "}
-          {formatTime(duration, longForm)}
-        </p>
+        {/* Digital LCD Timecode Box */}
+        <div className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border-2 border-border bg-theater px-3 py-1 text-center font-mono shadow-[inset_1px_1px_2px_rgba(0,0,0,0.5)]">
+          <span className="size-2 rounded-full bg-signal animate-pulse" />
+          <p className="text-xs font-bold tabular tracking-widest text-[#FCEEE2]">
+            <span>{formatTime(current, longForm)}</span>
+            <span className="text-muted-foreground mx-1">/</span>
+            <span className="text-muted-foreground">{formatTime(duration, longForm)}</span>
+          </p>
+        </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Hint label="Capture frame (S)">
-            <Button variant="success" size="icon" disabled={disabled} onClick={() => void capture()}>
-              <Camera />
-            </Button>
-          </Hint>
-          <Hint label="Copy frame (C)">
-            <Button variant="outline" size="icon" disabled={disabled} onClick={() => void copyFrame()}>
-              <Copy />
-            </Button>
-          </Hint>
+        {/* Audio Volume & Fullscreen */}
+        <div className="flex items-center gap-2">
           <Hint label={muted ? "Unmute (M)" : "Mute (M)"}>
-            <Button variant="outline" size="icon" disabled={disabled} onClick={toggleMute}>
+            <Button variant="outline" size="icon-sm" disabled={disabled} onClick={toggleMute}>
               {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
             </Button>
           </Hint>
           <Slider
-            className="w-20"
+            className="w-18"
             min={0}
             max={1}
             step={0.05}
@@ -488,16 +621,81 @@ export function VideoPlayer() {
             }}
           />
           <Hint label="Fullscreen (F)">
-            <Button variant="outline" size="icon" disabled={disabled} onClick={fullscreen}>
+            <Button variant="outline" size="icon-sm" disabled={disabled} onClick={fullscreen}>
               <Maximize />
             </Button>
           </Hint>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Jump to</span>
+      {/* Capture Action Bar (Snap, Burst, Copy) */}
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Button
+          type="button"
+          variant="success"
+          size="default"
+          disabled={disabled}
+          onClick={() => void capture()}
+          className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+        >
+          <Camera className="size-4" />
+          Snap Frame (S)
+        </Button>
+
+        <Button
+          type="button"
+          variant="accent"
+          size="default"
+          disabled={disabled}
+          onClick={() => void burstCapture()}
+          className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+          title="Capture 3 frames in quick succession"
+        >
+          <Layers className="size-4" />
+          Burst 3× (Shift+S)
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="default"
+          disabled={disabled}
+          onClick={() => void copyFrame()}
+          className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+        >
+          <Copy className="size-4" />
+          Copy Still (C)
+        </Button>
+      </div>
+
+      {/* Speed Selector & Direct Jump Row */}
+      <div className="mt-3.5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t-2 border-border/40 pt-3">
+        {/* Speed Selector Chips */}
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Deck Speed:
+          </span>
+          <div className="flex flex-wrap gap-1">
+            {PLAYBACK_RATES.map((r) => (
+              <Button
+                key={r}
+                size="sm"
+                variant={rate === r ? "signal" : "outline"}
+                disabled={disabled}
+                onClick={() => applyRate(r)}
+                className="h-6 min-w-9 px-1.5 text-[10px] font-bold"
+              >
+                {r}×
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Jump To Direct Timecode */}
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            Jump TC:
+          </span>
           <div className="flex items-center gap-1">
             <TimeField
               value={hours}
@@ -507,7 +705,7 @@ export function VideoPlayer() {
               onChange={setHours}
               onEnter={gotoTyped}
             />
-            <span className="text-muted-foreground">:</span>
+            <span className="font-bold text-muted-foreground">:</span>
             <TimeField
               value={minutes}
               placeholder="00"
@@ -516,7 +714,7 @@ export function VideoPlayer() {
               onChange={setMinutes}
               onEnter={gotoTyped}
             />
-            <span className="text-muted-foreground">:</span>
+            <span className="font-bold text-muted-foreground">:</span>
             <TimeField
               value={seconds}
               placeholder="00"
@@ -526,45 +724,28 @@ export function VideoPlayer() {
               onEnter={gotoTyped}
             />
           </div>
-          <Button variant="outline" size="sm" disabled={disabled} onClick={gotoTyped}>
+          <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" disabled={disabled} onClick={gotoTyped}>
             Go
           </Button>
         </div>
-
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground">Rate</span>
-          <div className="flex flex-wrap gap-1">
-            {PLAYBACK_RATES.map((r) => (
-              <Button
-                key={r}
-                size="sm"
-                variant={rate === r ? "default" : "outline"}
-                disabled={disabled}
-                onClick={() => applyRate(r)}
-                className="min-w-11 px-2"
-              >
-                {r}×
-              </Button>
-            ))}
-          </div>
-        </div>
       </div>
 
+      {/* Video Technical Specs Ribbon */}
       {videoSession ? (
-        <p className="mt-3 font-mono text-[11px] text-muted-foreground">
-          {formatFileSize(videoSession.fileSize)}
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+          <div className="flex items-center gap-3">
+            <span>
+              <strong className="text-foreground">Size:</strong> {formatFileSize(videoSession.fileSize)}
+            </span>
+            {videoDims ? (
+              <span>
+                <strong className="text-foreground">Res:</strong> {videoDims.w} × {videoDims.h}
+              </span>
+            ) : null}
+          </div>
+          <span className="font-bold text-success uppercase">● Hardware Accelerated</span>
+        </div>
       ) : null}
-
-      <p className="mt-3 border-t border-border pt-3 text-center font-mono text-[11px] leading-relaxed text-muted-foreground">
-        <Kbd>Space</Kbd> Play/Pause&nbsp;&nbsp;
-        <Kbd>←/→</Kbd> Seek&nbsp;&nbsp;
-        <Kbd>,/.</Kbd> Frame&nbsp;&nbsp;
-        <Kbd>[/]</Kbd> Rate&nbsp;&nbsp;
-        <Kbd>S</Kbd> Capture&nbsp;&nbsp;
-        <Kbd>C</Kbd> Copy&nbsp;&nbsp;
-        <Kbd>F</Kbd> Fullscreen
-      </p>
     </Panel>
   );
 }
@@ -605,15 +786,7 @@ function TimeField({
       onKeyDown={(event) => {
         if (event.key === "Enter") onEnter();
       }}
-      className="h-9 w-14 px-1 text-center"
+      className="h-7 w-12 px-1 text-center font-mono text-xs font-bold"
     />
-  );
-}
-
-function Kbd({ children }: { children: string }) {
-  return (
-    <kbd className="rounded-[4px] border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] text-foreground">
-      {children}
-    </kbd>
   );
 }

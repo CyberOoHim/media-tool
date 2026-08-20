@@ -1,8 +1,19 @@
-import { Copy, Download, ExternalLink, ImageIcon, RotateCcw, Upload } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Download,
+  ExternalLink,
+  ImageIcon,
+  RefreshCw,
+  RotateCcw,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { toast } from "sonner";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,8 +29,27 @@ import { copyBlobToClipboard, imageFileFromClipboard } from "@/features/media/cl
 import { extFromMime, fileStem, formatFileSize } from "@/features/media/format";
 import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
-import { CROP_PRESETS, FORMAT_OPTIONS, type CropPresetId, type OutputFormat } from "@/features/media/types";
+import {
+  CROP_PRESETS,
+  FORMAT_OPTIONS,
+  type CropPresetId,
+  type OutputFormat,
+} from "@/features/media/types";
 import { cn } from "@/lib/utils";
+
+const QUICK_BUDGETS = [50, 100, 175, 300, 500] as const;
+
+const QUICK_ASPECTS: { id: CropPresetId; label: string }[] = [
+  { id: "none", label: "Original" },
+  { id: "16:9", label: "16:9" },
+  { id: "4:3", label: "4:3" },
+  { id: "square", label: "1:1" },
+  { id: "9:16", label: "9:16" },
+  { id: "yt-thumb", label: "YT 720p" },
+  { id: "og", label: "OG Card" },
+  { id: "std-banner", label: "Banner" },
+  { id: "custom", label: "Custom" },
+];
 
 export function ImageBench() {
   const source = useMediaStore((s) => s.source);
@@ -41,7 +71,7 @@ export function ImageBench() {
       if (!file) return;
       event.preventDefault();
       void loadImageFile(file);
-      toast.success("Image pasted");
+      toast.success("Pasted image into Bench");
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -57,7 +87,7 @@ export function ImageBench() {
     if (!output) return;
     try {
       await copyBlobToClipboard(output.blob);
-      toast.success("Copied optimized image");
+      toast.success("Copied optimized still to clipboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Copy failed");
     }
@@ -73,95 +103,106 @@ export function ImageBench() {
     ? `${fileStem(source?.fileName ?? "image")}_optimized.${extFromMime(output.format)}`
     : "image_optimized.jpg";
 
-  return (
-    <Panel title="Bench">
-      <DropZone
-        accept="image/*"
-        onFiles={onPick}
-        className="flex flex-col items-center justify-center gap-1 px-6 py-8 text-center"
-      >
-        <Upload className="size-7 text-signal" />
-        <p className="font-mono text-sm text-foreground">Click or drag & drop image</p>
-        <p className="text-xs text-muted-foreground">JPG, PNG, WebP supported · paste also works</p>
-        {source ? (
-          <p className="mt-2 font-mono text-xs text-success">{source.fileName}</p>
-        ) : null}
-      </DropZone>
+  const benchStatus = processing
+    ? "PROCESSING"
+    : output
+      ? "OPTIMIZED"
+      : source
+        ? "READY"
+        : "IDLE";
 
+  const benchStatusVariant = processing
+    ? "signal"
+    : output
+      ? "success"
+      : "default";
+
+  return (
+    <Panel
+      title="Bench-2 // Still Optimizer"
+      status={benchStatus}
+      statusVariant={benchStatusVariant}
+      action={
+        source ? (
+          <span className="max-w-[140px] truncate font-mono text-[11px] font-bold text-foreground sm:max-w-[200px]">
+            {source.fileName}
+          </span>
+        ) : (
+          <Badge variant="outline">No Frame Loaded</Badge>
+        )
+      }
+    >
+      {/* Drop / Load Area */}
+      {!source ? (
+        <DropZone
+          accept="image/*"
+          onFiles={onPick}
+          className="flex min-h-[160px] flex-col items-center justify-center gap-2 p-6 text-center"
+        >
+          <div className="grid size-12 place-items-center rounded-[var(--radius-sm)] border-2 border-border bg-signal text-foreground shadow-[2px_2px_0px_var(--color-border)]">
+            <Upload className="size-6" />
+          </div>
+          <div>
+            <p className="font-mono text-sm font-bold uppercase tracking-wider text-foreground">
+              Drop Still Image or Snap Video Frame
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Supports JPG, PNG, WebP, AVIF · Clipboard paste works anywhere
+            </p>
+          </div>
+        </DropZone>
+      ) : null}
+
+      {/* Error Alert */}
       {error ? (
         <div
           role="alert"
-          className="mt-3 flex gap-2 rounded-[var(--radius-sm)] border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          className="mb-3 flex items-center justify-between rounded-[var(--radius-sm)] border-2 border-destructive bg-destructive/10 px-3 py-2 text-xs font-mono font-bold text-destructive shadow-[2px_2px_0px_var(--color-border)]"
         >
           <span>{error}</span>
-          <button type="button" className="ml-auto text-xs underline" onClick={() => setError(null)}>
+          <button type="button" className="underline hover:no-underline" onClick={() => setError(null)}>
             Dismiss
           </button>
         </div>
       ) : null}
 
-      <div className={cn("relative mt-4", !source && "pointer-events-none opacity-40")}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <ControlBlock label="Target Size" value={`${settings.targetKb} KB`}>
-            <Slider
-              min={25}
-              max={500}
-              step={5}
-              value={[settings.targetKb]}
-              onValueChange={([v]) => setSettings({ targetKb: v ?? 175 })}
-            />
-          </ControlBlock>
-
-          <ControlBlock label="Quality" value={settings.quality.toFixed(2)}>
-            <Slider
-              min={10}
-              max={100}
-              step={5}
-              value={[Math.round(settings.quality * 100)]}
-              onValueChange={([v]) => setSettings({ quality: (v ?? 85) / 100 })}
-            />
-          </ControlBlock>
-
-          <ControlBlock label="Format">
-            <Select
-              value={settings.format}
-              onValueChange={(value) => setSettings({ format: value as OutputFormat })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {FORMAT_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </ControlBlock>
-
-          <ControlBlock label="Crop / Resize">
-            <Select
-              value={settings.cropPreset}
-              onValueChange={(value) => setSettings({ cropPreset: value as CropPresetId })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CROP_PRESETS.map((opt) => (
-                  <SelectItem key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </ControlBlock>
+      {/* Preset Controls Container */}
+      <div className={cn("relative space-y-3.5", !source && "pointer-events-none opacity-40")}>
+        {/* Quick Aspect Ratio Chips */}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
+              1. Aspect Ratio / Crop Preset:
+            </Label>
+            <span className="font-mono text-[11px] font-bold text-primary">
+              {CROP_PRESETS.find((p) => p.id === settings.cropPreset)?.label}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {QUICK_ASPECTS.map((asp) => {
+              const active = settings.cropPreset === asp.id;
+              return (
+                <Button
+                  key={asp.id}
+                  type="button"
+                  size="sm"
+                  variant={active ? "primary" : "outline"}
+                  onClick={() => setSettings({ cropPreset: asp.id })}
+                  className="h-7 px-2 text-[10px] font-bold"
+                >
+                  {asp.label}
+                </Button>
+              );
+            })}
+          </div>
         </div>
 
+        {/* Custom Dimensions If Selected */}
         {settings.cropPreset === "custom" ? (
-          <div className="mt-3">
-            <Label className="mb-2">Custom Dimensions (px)</Label>
+          <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 p-2.5">
+            <Label className="mb-1.5 block font-mono text-[11px] font-bold uppercase text-foreground">
+              Custom Pixel Dimensions (Width × Height)
+            </Label>
             <div className="flex items-center gap-2">
               <Input
                 type="number"
@@ -170,9 +211,9 @@ export function ImageBench() {
                 placeholder="Width"
                 value={settings.customWidth}
                 onChange={(e) => setSettings({ customWidth: e.target.value })}
-                className="w-28"
+                className="w-28 font-mono text-xs"
               />
-              <span className="text-muted-foreground">×</span>
+              <span className="font-bold text-foreground">×</span>
               <Input
                 type="number"
                 min={50}
@@ -180,98 +221,204 @@ export function ImageBench() {
                 placeholder="Height"
                 value={settings.customHeight}
                 onChange={(e) => setSettings({ customHeight: e.target.value })}
-                className="w-28"
+                className="w-28 font-mono text-xs"
               />
+              <span className="font-mono text-[11px] text-muted-foreground">px</span>
             </div>
           </div>
         ) : null}
 
-        <div className="mt-4 flex justify-center">
-          <Button type="button" disabled={!source || processing} onClick={() => void process()}>
-            Process Image
-          </Button>
+        {/* Quick Target Budget Chips & Sliders */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Target KB Slider & Quick Chips */}
+          <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/40 p-2.5">
+            <div className="mb-1.5 flex items-center justify-between">
+              <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
+                2. Target Budget:
+              </Label>
+              <span className="rounded-xs border border-border bg-signal px-1.5 py-0.2 font-mono text-xs font-bold text-foreground">
+                {settings.targetKb} KB
+              </span>
+            </div>
+
+            <Slider
+              min={20}
+              max={600}
+              step={5}
+              value={[settings.targetKb]}
+              onValueChange={([v]) => setSettings({ targetKb: v ?? 175 })}
+            />
+
+            <div className="mt-2 flex flex-wrap gap-1">
+              {QUICK_BUDGETS.map((kb) => (
+                <Button
+                  key={kb}
+                  type="button"
+                  size="sm"
+                  variant={settings.targetKb === kb ? "signal" : "outline"}
+                  onClick={() => setSettings({ targetKb: kb })}
+                  className="h-6 px-1.5 text-[9px] font-bold"
+                >
+                  {kb}K
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Quality & Format Block */}
+          <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/40 p-2.5">
+            <div className="mb-1.5 flex items-center justify-between">
+              <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
+                3. Quality & Format:
+              </Label>
+              <span className="font-mono text-xs font-bold text-foreground">
+                {Math.round(settings.quality * 100)}%
+              </span>
+            </div>
+
+            <Slider
+              min={10}
+              max={100}
+              step={5}
+              value={[Math.round(settings.quality * 100)]}
+              onValueChange={([v]) => setSettings({ quality: (v ?? 85) / 100 })}
+            />
+
+            <div className="mt-2 flex items-center gap-2">
+              <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground">Format:</span>
+              <Select
+                value={settings.format}
+                onValueChange={(value) => setSettings({ format: value as OutputFormat })}
+              >
+                <SelectTrigger className="h-7 text-[11px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORMAT_OPTIONS.map((opt) => (
+                    <SelectItem key={opt.id} value={opt.id}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
         </div>
 
+        {/* Processing Indicator Overlay */}
         {processing ? (
-          <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[var(--radius-md)] bg-background/80 font-mono text-sm tracking-widest text-signal">
-            PROCESSING...
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[var(--radius-md)] bg-card/80 backdrop-blur-xs font-mono text-xs font-bold tracking-widest text-primary">
+            <span className="flex items-center gap-2 rounded border-2 border-border bg-secondary px-3 py-1.5 shadow-[2px_2px_0px_var(--color-border)]">
+              <RefreshCw className="size-4 animate-spin" />
+              COMPRESSING TO BUDGET...
+            </span>
           </div>
         ) : null}
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {/* Side-by-Side Source vs Optimized Cards */}
+      <div className="mt-3.5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {/* Source Card */}
         <PreviewCard
-          title="Source"
+          title="Raw Source Frame"
           src={source?.objectUrl}
-          empty="Drop an image or capture a frame"
-          dimensions={source ? `${source.width} × ${source.height}` : "-"}
-          size={source ? formatFileSize(source.fileSize) : "-"}
+          empty="Drop image or press S on player"
+          dimensions={source ? `${source.width} × ${source.height} px` : "—"}
+          size={source ? formatFileSize(source.fileSize) : "—"}
+          tag="SOURCE"
         />
+
+        {/* Optimized Card */}
         <PreviewCard
-          title="Output"
+          title="Optimized Output"
           src={output?.objectUrl}
-          empty="WAITING..."
-          dimensions={output ? `${output.width} × ${output.height}` : "-"}
-          size={output ? formatFileSize(output.blob.size) : "-"}
+          empty={source ? "Optimizing..." : "Waiting for source frame..."}
+          dimensions={output ? `${output.width} × ${output.height} px` : "—"}
+          size={output ? formatFileSize(output.blob.size) : "—"}
+          tag={output ? extFromMime(output.format).toUpperCase() : "TARGET"}
           sizeAccent
           extra={
             pct
-              ? { label: "Reduction", value: savings > 0 ? `-${pct}%` : "+0%" }
-              : { label: "Reduction", value: "-" }
+              ? {
+                  label: "Byte Reduction",
+                  value: savings > 0 ? `-${pct}% SAVED` : "+0% (RAW)",
+                  isPositive: savings > 0,
+                }
+              : undefined
+          }
+          budgetNote={
+            output
+              ? output.blob.size <= settings.targetKb * 1024
+                ? `✔ Fits ${settings.targetKb} KB budget`
+                : `Target ${settings.targetKb} KB (quality floor)`
+              : undefined
           }
         />
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-        {output ? (
-          <>
-            <SaveLink blob={output.blob} filename={outputName}>
-              <Download />
-              Download Saved Image
-            </SaveLink>
-            <Button asChild variant="outline">
-              <a href={output.objectUrl} target="_blank" rel="noopener">
-                <ExternalLink />
-                Open
-              </a>
+      {/* Action Command Bar */}
+      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 border-t-2 border-border/40 pt-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {output ? (
+            <>
+              <SaveLink blob={output.blob} filename={outputName}>
+                <Download className="size-4" />
+                Download ({formatFileSize(output.blob.size)})
+              </SaveLink>
+
+              <Button asChild variant="outline" size="sm">
+                <a href={output.objectUrl} target="_blank" rel="noopener">
+                  <ExternalLink className="size-3.5" />
+                  Full Preview
+                </a>
+              </Button>
+            </>
+          ) : (
+            <Button type="button" variant="success" size="sm" disabled>
+              <Download className="size-4" />
+              Download Saved Still
             </Button>
-          </>
-        ) : (
-          <Button type="button" variant="success" disabled>
-            <Download />
-            Download Saved Image
+          )}
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!output}
+            onClick={() => void copyOutput()}
+            title="Copy optimized image to clipboard"
+          >
+            <Copy className="size-3.5" />
+            Copy
           </Button>
-        )}
-        <Button type="button" variant="outline" disabled={!output} onClick={() => void copyOutput()}>
-          <Copy />
-          Copy
-        </Button>
-        <Button type="button" variant="outline" onClick={clearBench} disabled={!source && !output}>
-          <RotateCcw />
-          Reset
-        </Button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void process()}
+            disabled={!source || processing}
+            title="Re-run compression algorithm"
+          >
+            <RefreshCw className={cn("size-3.5", processing && "animate-spin")} />
+            Re-process
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={clearBench}
+            disabled={!source && !output}
+          >
+            <RotateCcw className="size-3.5" />
+            Reset
+          </Button>
+        </div>
       </div>
     </Panel>
-  );
-}
-
-function ControlBlock({
-  label,
-  value,
-  children,
-}: {
-  label: string;
-  value?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <Label>
-        {label}
-        {value ? <span className="text-signal">{value}</span> : null}
-      </Label>
-      {children}
-    </div>
   );
 }
 
@@ -282,7 +429,9 @@ function PreviewCard({
   dimensions,
   size,
   sizeAccent,
+  tag,
   extra,
+  budgetNote,
 }: {
   title: string;
   src?: string;
@@ -290,33 +439,83 @@ function PreviewCard({
   dimensions: string;
   size: string;
   sizeAccent?: boolean;
-  extra?: { label: string; value: string };
+  tag: string;
+  extra?: { label: string; value: string; isPositive?: boolean };
+  budgetNote?: string;
 }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-border bg-secondary/40 p-3">
-      <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{title}</p>
-      <div className="checkerboard mb-3 flex h-44 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-border">
+    <div className="flex flex-col rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 shadow-[2px_2px_0px_var(--color-border)]">
+      {/* Card Header */}
+      <div className="mb-2 flex items-center justify-between">
+        <p className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">{title}</p>
+        <Badge variant={sizeAccent ? "success" : "outline"} className="text-[9px]">
+          {tag}
+        </Badge>
+      </div>
+
+      {/* Image Preview Canvas */}
+      <div className="checkerboard relative mb-2.5 flex h-48 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border-2 border-border">
         {src ? (
-          <img src={src} alt={title} className="max-h-full max-w-full object-contain" />
+          <img src={src} alt={title} className="max-h-full max-w-full object-contain p-1" />
         ) : (
-          <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
-            {title === "Source" ? <Upload className="size-3.5" /> : <ImageIcon className="size-3.5" />}
+          <span className="flex items-center gap-2 font-mono text-xs font-semibold text-muted-foreground">
+            <ImageIcon className="size-4" />
             {empty}
           </span>
         )}
       </div>
-      <StatRow label="Dimensions" value={dimensions} />
-      <StatRow label="Size" value={size} accent={sizeAccent} />
-      {extra ? <StatRow label={extra.label} value={extra.value} /> : null}
+
+      {/* Stats Metadata */}
+      <div className="space-y-1 text-xs font-mono">
+        <StatRow label="Resolution" value={dimensions} />
+        <StatRow label="File Size" value={size} accent={sizeAccent} />
+        {extra ? (
+          <StatRow
+            label={extra.label}
+            value={extra.value}
+            accent={extra.isPositive}
+            isTag
+          />
+        ) : null}
+      </div>
+
+      {budgetNote ? (
+        <p className="mt-1.5 font-mono text-[10px] font-bold text-success uppercase">
+          {budgetNote}
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function StatRow({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function StatRow({
+  label,
+  value,
+  accent,
+  isTag,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  isTag?: boolean;
+}) {
   return (
-    <div className="flex justify-between border-b border-border/60 py-1.5 font-mono text-xs last:border-0">
+    <div className="flex items-center justify-between border-b border-border/40 py-1 font-mono text-xs last:border-0">
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn("tabular text-foreground", accent && "text-success")}>{value}</span>
+      {isTag ? (
+        <span
+          className={cn(
+            "rounded-xs px-1.5 py-0.2 font-mono text-[10px] font-bold uppercase tracking-wider",
+            accent ? "bg-success text-success-foreground" : "bg-secondary text-foreground",
+          )}
+        >
+          {value}
+        </span>
+      ) : (
+        <span className={cn("tabular font-semibold text-foreground", accent && "text-success font-bold")}>
+          {value}
+        </span>
+      )}
     </div>
   );
 }
