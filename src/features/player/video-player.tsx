@@ -78,6 +78,11 @@ export function VideoPlayer() {
     startPanY: number;
   } | null>(null);
 
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
   const hasVideo = Boolean(videoSession);
   const longForm = duration >= 3600;
 
@@ -88,6 +93,21 @@ export function VideoPlayer() {
     setDuration(0);
     setVideoDims(null);
     setVideoTransform(DEFAULT_TRANSFORM);
+  }, [videoSession?.objectUrl]);
+
+  useEffect(() => {
+    const el = videoContainerRef.current;
+    if (!el) return;
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setViewportSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [videoSession?.objectUrl]);
 
   const triggerShutterFlash = () => {
@@ -555,18 +575,47 @@ export function VideoPlayer() {
                 CROP_PRESETS.find((p) => p.id === videoTransform.cropPreset)?.label ??
                 videoTransform.cropPreset;
 
+              // Best fit upon video viewport:
+              // Width fit or Height fit, whichever first hits the edge flush (0 arbitrary padding)
+              let frameStyle: React.CSSProperties = {
+                aspectRatio: `${cropRatio}`,
+              };
+
+              if (viewportSize.width > 0 && viewportSize.height > 0) {
+                const containerAspect = viewportSize.width / viewportSize.height;
+                if (cropRatio >= containerAspect) {
+                  // Width fit (hits left & right edges flush)
+                  const fw = viewportSize.width;
+                  const fh = Math.round(viewportSize.width / cropRatio);
+                  frameStyle = {
+                    width: `${fw}px`,
+                    height: `${fh}px`,
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                  };
+                } else {
+                  // Height fit (hits top & bottom edges flush)
+                  const fh = viewportSize.height;
+                  const fw = Math.round(viewportSize.height * cropRatio);
+                  frameStyle = {
+                    width: `${fw}px`,
+                    height: `${fh}px`,
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                  };
+                }
+              } else {
+                frameStyle =
+                  cropRatio >= 1
+                    ? { width: "100%", height: "auto", aspectRatio: `${cropRatio}` }
+                    : { height: "100%", width: "auto", aspectRatio: `${cropRatio}` };
+              }
+
               return (
-                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-3 sm:p-5">
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden">
                   <div
-                    className="relative flex items-start justify-between border-2 border-dashed border-signal bg-signal/5 p-1.5 shadow-[0_0_0_9999px_rgba(0,0,0,0.55)] transition-all duration-150"
-                    style={{
-                      aspectRatio: `${cropRatio}`,
-                      maxWidth: "92%",
-                      maxHeight: "88%",
-                      ...(cropRatio >= 1
-                        ? { width: "88%", height: "auto" }
-                        : { height: "88%", width: "auto" }),
-                    }}
+                    className="relative flex items-start justify-between border-2 border-dashed border-signal bg-signal/5 p-1.5 shadow-[0_0_0_9999px_rgba(0,0,0,0.65)] transition-all duration-100"
+                    style={frameStyle}
                   >
                     {/* Rule of thirds grid lines */}
                     <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-25">
@@ -582,7 +631,7 @@ export function VideoPlayer() {
                     </div>
 
                     {/* Center alignment crosshair */}
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-25">
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-30">
                       <div className="h-4 w-[1px] bg-signal" />
                       <div className="h-[1px] w-4 bg-signal absolute" />
                     </div>
@@ -593,15 +642,15 @@ export function VideoPlayer() {
                         {presetLabel}
                       </span>
                       {cropTarget ? (
-                        <span className="rounded-xs bg-black/80 px-1 py-0.5 font-mono text-[8px] font-semibold text-[#fceee2]">
-                          {cropTarget.width} × {cropTarget.height}
+                        <span className="rounded-xs bg-black/85 px-1.5 py-0.5 font-mono text-[8px] font-semibold text-[#fceee2] border border-signal/30">
+                          {cropTarget.width} × {cropTarget.height} px
                         </span>
                       ) : null}
                     </div>
 
                     <div className="relative z-10">
-                      <span className="rounded-xs bg-black/80 px-1 py-0.5 font-mono text-[8px] font-semibold text-signal uppercase">
-                        CROP FRAME
+                      <span className="rounded-xs bg-black/85 px-1.5 py-0.5 font-mono text-[8px] font-semibold text-signal uppercase border border-signal/30">
+                        CROP APERTURE
                       </span>
                     </div>
                   </div>

@@ -552,6 +552,25 @@ function PreviewCard({
   containerRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const hasTransform = transform && hasActiveTransform(transform);
+  const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+
+  useEffect(() => {
+    const el = containerRef?.current;
+    if (!el) return;
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setViewportSize({ width: rect.width, height: rect.height });
+      }
+    };
+    updateSize();
+    const ro = new ResizeObserver(updateSize);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [containerRef]);
 
   return (
     <div className="flex flex-col rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 shadow-[2px_2px_0px_var(--color-border)]">
@@ -616,18 +635,46 @@ function PreviewCard({
             CROP_PRESETS.find((p) => p.id === transform.cropPreset)?.label ??
             transform.cropPreset;
 
+          // Best fit upon viewport: width fit or height fit, whichever first hits the edge
+          let frameStyle: React.CSSProperties = {
+            aspectRatio: `${cropRatio}`,
+          };
+
+          if (viewportSize.width > 0 && viewportSize.height > 0) {
+            const containerAspect = viewportSize.width / viewportSize.height;
+            if (cropRatio >= containerAspect) {
+              // Width fit (hits left & right edges flush)
+              const fw = viewportSize.width;
+              const fh = Math.round(viewportSize.width / cropRatio);
+              frameStyle = {
+                width: `${fw}px`,
+                height: `${fh}px`,
+                maxWidth: "100%",
+                maxHeight: "100%",
+              };
+            } else {
+              // Height fit (hits top & bottom edges flush)
+              const fh = viewportSize.height;
+              const fw = Math.round(viewportSize.height * cropRatio);
+              frameStyle = {
+                width: `${fw}px`,
+                height: `${fh}px`,
+                maxWidth: "100%",
+                maxHeight: "100%",
+              };
+            }
+          } else {
+            frameStyle =
+              cropRatio >= 1
+                ? { width: "100%", height: "auto", aspectRatio: `${cropRatio}` }
+                : { height: "100%", width: "auto", aspectRatio: `${cropRatio}` };
+          }
+
           return (
-            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-2 sm:p-3">
+            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-hidden">
               <div
-                className="relative flex items-start justify-between border-2 border-dashed border-signal bg-signal/5 p-1 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] transition-all duration-150"
-                style={{
-                  aspectRatio: `${cropRatio}`,
-                  maxWidth: "92%",
-                  maxHeight: "88%",
-                  ...(cropRatio >= 1
-                    ? { width: "88%", height: "auto" }
-                    : { height: "88%", width: "auto" }),
-                }}
+                className="relative flex items-start justify-between border-2 border-dashed border-signal bg-signal/5 p-1 shadow-[0_0_0_9999px_rgba(0,0,0,0.65)] transition-all duration-100"
+                style={frameStyle}
               >
                 {/* Rule of thirds grid lines */}
                 <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-25">
@@ -645,7 +692,7 @@ function PreviewCard({
                 <span className="relative z-10 rounded-xs bg-signal px-1 py-0.5 font-mono text-[8px] font-bold uppercase text-foreground shadow-xs">
                   {presetLabel}
                 </span>
-                <span className="relative z-10 rounded-xs bg-black/80 px-1 py-0.5 font-mono text-[8px] font-semibold text-signal uppercase">
+                <span className="relative z-10 rounded-xs bg-black/85 px-1 py-0.5 font-mono text-[8px] font-semibold text-signal uppercase border border-signal/30">
                   CROP
                 </span>
               </div>
