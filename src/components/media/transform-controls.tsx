@@ -18,6 +18,7 @@ import {
   clampPan,
   clampZoom,
   hasActiveTransform,
+  normalizeRotation,
   rotateClockwise,
   rotateCounterClockwise,
   type TransformState,
@@ -225,37 +226,44 @@ export function TransformControls({
         <div className="rounded-[var(--radius-sm)] border border-border bg-card p-2 space-y-1.5">
           <div className="flex items-center justify-between text-[10px] font-mono font-bold">
             <span className="text-muted-foreground flex items-center gap-1">
-              <RotateCw className="size-3" /> Rotate & Orientation
+              <RotateCw className="size-3" /> Rotate Angle
             </span>
-            <Badge variant="outline" className="h-4 px-1 text-[8px] font-mono">
-              {transform.rotation}°
-            </Badge>
+            <span className="tabular text-foreground">
+              {Math.round(normalizeRotation(transform.rotation))}°
+            </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <Hint label="Rotate 90° CCW">
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-6 flex-1 text-[9px] font-mono font-bold"
+                size="icon-sm"
+                className="size-6"
                 onClick={() => onChange({ rotation: rotateCounterClockwise(transform.rotation) })}
               >
-                <RotateCcw className="size-3 mr-1" />
-                -90°
+                <RotateCcw className="size-3" />
               </Button>
             </Hint>
+
+            <Slider
+              min={0}
+              max={360}
+              step={1}
+              value={[Math.round(normalizeRotation(transform.rotation))]}
+              onValueChange={([v]) => onChange({ rotation: normalizeRotation(v ?? 0) })}
+              className="flex-1"
+            />
 
             <Hint label="Rotate 90° CW (R)">
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
-                className="h-6 flex-1 text-[9px] font-mono font-bold"
+                size="icon-sm"
+                className="size-6"
                 onClick={() => onChange({ rotation: rotateClockwise(transform.rotation) })}
               >
-                <RotateCw className="size-3 mr-1" />
-                +90°
+                <RotateCw className="size-3" />
               </Button>
             </Hint>
           </div>
@@ -265,7 +273,7 @@ export function TransformControls({
               <Button
                 key={deg}
                 type="button"
-                variant={transform.rotation === deg ? "signal" : "outline"}
+                variant={Math.round(normalizeRotation(transform.rotation)) === deg ? "signal" : "outline"}
                 size="sm"
                 className="h-5 flex-1 px-0 text-[8px] font-mono font-bold"
                 onClick={() => onChange({ rotation: deg })}

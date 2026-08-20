@@ -933,7 +933,7 @@ export function VideoPlayer() {
             ) : null}
             {hasActiveTransform(videoTransform) ? (
               <span className="text-signal font-bold">
-                ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot: {videoTransform.rotation}°
+                ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot: {Math.round(videoTransform.rotation)}°
               </span>
             ) : null}
           </div>

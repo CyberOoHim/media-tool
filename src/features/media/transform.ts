@@ -5,7 +5,7 @@ export type TransformState = {
   zoom: number; // 1.0 to 4.0
   panX: number; // offset in % (-100 to 100)
   panY: number; // offset in % (-100 to 100)
-  rotation: number; // 0, 90, 180, 270 (degrees)
+  rotation: number; // 0 to 360 degrees (continuous)
   flipH: boolean; // horizontal mirror
   flipV: boolean; // vertical mirror
   cropPreset: CropPresetId;
@@ -24,11 +24,12 @@ export const DEFAULT_TRANSFORM: TransformState = {
 };
 
 export function hasActiveTransform(t: TransformState): boolean {
+  const normRot = ((t.rotation % 360) + 360) % 360;
   return (
     t.zoom !== 1 ||
     t.panX !== 0 ||
     t.panY !== 0 ||
-    t.rotation !== 0 ||
+    normRot !== 0 ||
     t.flipH ||
     t.flipV ||
     t.cropPreset !== "none"
@@ -41,12 +42,17 @@ export function getTransformCss(t: TransformState): string {
   return `translate(${t.panX}%, ${t.panY}%) rotate(${t.rotation}deg) scale(${scaleX}, ${scaleY})`;
 }
 
-export function rotateClockwise(current: number): number {
-  return (current + 90) % 360;
+export function normalizeRotation(deg: number): number {
+  const norm = ((deg % 360) + 360) % 360;
+  return Number(norm.toFixed(1));
 }
 
-export function rotateCounterClockwise(current: number): number {
-  return (current + 270) % 360;
+export function rotateClockwise(current: number, step = 90): number {
+  return normalizeRotation(current + step);
+}
+
+export function rotateCounterClockwise(current: number, step = 90): number {
+  return normalizeRotation(current - step);
 }
 
 export function clampZoom(value: number): number {
@@ -62,10 +68,12 @@ export function calculateOrientedDimensions(
   srcH: number,
   rotation: number,
 ): { width: number; height: number } {
-  const is90or270 = rotation === 90 || rotation === 270;
+  const rad = ((rotation % 360) * Math.PI) / 180;
+  const absCos = Math.abs(Math.cos(rad));
+  const absSin = Math.abs(Math.sin(rad));
   return {
-    width: is90or270 ? srcH : srcW,
-    height: is90or270 ? srcW : srcH,
+    width: Math.max(1, Math.round(srcW * absCos + srcH * absSin)),
+    height: Math.max(1, Math.round(srcW * absSin + srcH * absCos)),
   };
 }
 
