@@ -1,4 +1,9 @@
-import { coverSourceRect, resolveCropTarget } from "./crop";
+import { resolveCropTarget } from "./crop";
+import {
+  type TransformState,
+  calculateOrientedDimensions,
+  renderTransformedSource,
+} from "./transform";
 import { MIN_DIMENSION, type CropPresetId, type OutputFormat } from "./types";
 
 export type CompressOptions = {
@@ -8,6 +13,7 @@ export type CompressOptions = {
   cropPreset: CropPresetId;
   customWidth?: number;
   customHeight?: number;
+  transform?: TransformState;
 };
 
 export type CompressResult = {
@@ -48,10 +54,8 @@ async function encode(
   return { blob, mime: type };
 }
 
-function drawCover(
+function drawScaled(
   source: CanvasImageSource,
-  srcW: number,
-  srcH: number,
   dstW: number,
   dstH: number,
 ): HTMLCanvasElement {
@@ -62,8 +66,7 @@ function drawCover(
   if (!ctx) throw new Error("Canvas is unavailable.");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  const { sx, sy, sw, sh } = coverSourceRect(srcW, srcH, dstW, dstH);
-  ctx.drawImage(source, sx, sy, sw, sh, 0, 0, dstW, dstH);
+  ctx.drawImage(source, 0, 0, dstW, dstH);
   return canvas;
 }
 
@@ -110,12 +113,25 @@ export async function compressImage(
   srcH: number,
   options: CompressOptions,
 ): Promise<CompressResult> {
+  const transform: TransformState = options.transform ?? {
+    zoom: 1,
+    panX: 0,
+    panY: 0,
+    rotation: 0,
+    flipH: false,
+    flipV: false,
+    cropPreset: options.cropPreset,
+    customWidth: options.customWidth,
+    customHeight: options.customHeight,
+  };
+
+  const oriented = calculateOrientedDimensions(srcW, srcH, transform.rotation);
   const target = resolveCropTarget(
-    srcW,
-    srcH,
-    options.cropPreset,
-    options.customWidth,
-    options.customHeight,
+    oriented.width,
+    oriented.height,
+    transform.cropPreset,
+    transform.customWidth,
+    transform.customHeight,
   );
 
   const baseW = target.width;
@@ -127,16 +143,17 @@ export async function compressImage(
   let outH = baseH;
   let iterations = 0;
 
+  // Render master transformed image canvas
+  const masterCanvas = renderTransformedSource(source, srcW, srcH, transform, baseW, baseH);
+
   while (iterations < MAX_ITERATIONS) {
     outW = Math.max(1, Math.round(baseW * scale));
     outH = Math.max(1, Math.round(baseH * scale));
 
     if (outW < MIN_DIMENSION || outH < MIN_DIMENSION) {
       if (!blob) {
-        const canvas = drawCover(
-          source,
-          srcW,
-          srcH,
+        const canvas = drawScaled(
+          masterCanvas,
           Math.max(outW, MIN_DIMENSION),
           Math.max(outH, MIN_DIMENSION),
         );
@@ -149,7 +166,7 @@ export async function compressImage(
       break;
     }
 
-    const canvas = drawCover(source, srcW, srcH, outW, outH);
+    const canvas = scale === 1 ? masterCanvas : drawScaled(masterCanvas, outW, outH);
     const fitted = await fitQuality(canvas, mime, options.targetBytes, options.quality);
     blob = fitted.blob;
     mime = fitted.mime;
@@ -174,3 +191,4 @@ export function loadHtmlImage(src: string): Promise<HTMLImageElement> {
     img.src = src;
   });
 }
+

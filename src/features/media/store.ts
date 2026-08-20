@@ -3,6 +3,7 @@ import { compressImage, loadHtmlImage } from "./compress";
 import { downloadBlob } from "./download";
 import { extFromMime, fileStem, timestampForFilename } from "./format";
 import { revokeQuiet } from "./object-url";
+import { DEFAULT_TRANSFORM, type TransformState } from "./transform";
 import {
   DEFAULT_SETTINGS,
   MAX_CAPTURES,
@@ -19,6 +20,7 @@ type MediaState = {
   captures: CaptureItem[];
   output: BenchOutput | null;
   settings: BenchSettings;
+  benchTransform: TransformState;
   processing: boolean;
   error: string | null;
   loadVideo: (file: File) => void;
@@ -39,6 +41,8 @@ type MediaState = {
   downloadCapture: (id: string) => void;
   downloadAllCaptures: () => void;
   setSettings: (partial: Partial<BenchSettings>, autoRun?: boolean) => void;
+  setBenchTransform: (partial: Partial<TransformState>, autoRun?: boolean) => void;
+  resetBenchTransform: () => void;
   clearBench: () => void;
   resetAll: () => void;
   setError: (message: string | null) => void;
@@ -56,6 +60,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   captures: [],
   output: null,
   settings: { ...DEFAULT_SETTINGS },
+  benchTransform: { ...DEFAULT_TRANSFORM },
   processing: false,
   error: null,
 
@@ -212,11 +217,18 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   process: async () => {
-    const { source, settings, processing } = get();
+    const { source, settings, benchTransform, processing } = get();
     if (!source || processing) return;
     set({ processing: true, error: null });
     try {
       const img = await loadHtmlImage(source.objectUrl);
+      const activeTransform: TransformState = {
+        ...benchTransform,
+        cropPreset: settings.cropPreset,
+        customWidth: Number.parseInt(settings.customWidth, 10) || undefined,
+        customHeight: Number.parseInt(settings.customHeight, 10) || undefined,
+      };
+
       const result = await compressImage(img, img.naturalWidth, img.naturalHeight, {
         targetBytes: settings.targetKb * 1024,
         quality: settings.quality,
@@ -224,6 +236,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
         cropPreset: settings.cropPreset,
         customWidth: Number.parseInt(settings.customWidth, 10) || undefined,
         customHeight: Number.parseInt(settings.customHeight, 10) || undefined,
+        transform: activeTransform,
       });
       const prevOut = get().output;
       revokeQuiet(prevOut?.objectUrl);
@@ -279,11 +292,31 @@ export const useMediaStore = create<MediaState>((set, get) => ({
     }
   },
 
+  setBenchTransform: (partial, autoRun = true) => {
+    set((state) => ({ benchTransform: { ...state.benchTransform, ...partial } }));
+    if (autoRun && get().source) {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void get().process();
+      }, 150);
+    }
+  },
+
+  resetBenchTransform: () => {
+    set({ benchTransform: { ...DEFAULT_TRANSFORM } });
+    if (get().source) {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        void get().process();
+      }, 150);
+    }
+  },
+
   clearBench: () => {
     const { source, output } = get();
     if (source && !source.fromCaptureId) revokeQuiet(source.objectUrl);
     revokeQuiet(output?.objectUrl);
-    set({ source: null, output: null, error: null });
+    set({ source: null, output: null, benchTransform: { ...DEFAULT_TRANSFORM }, error: null });
   },
 
   resetAll: () => {
@@ -298,6 +331,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       captures: [],
       output: null,
       settings: { ...DEFAULT_SETTINGS },
+      benchTransform: { ...DEFAULT_TRANSFORM },
       processing: false,
       error: null,
     });

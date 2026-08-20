@@ -7,10 +7,11 @@ import {
   RotateCcw,
   Upload,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
+import { TransformControls } from "@/components/media/transform-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,13 @@ import { copyBlobToClipboard, imageFileFromClipboard } from "@/features/media/cl
 import { extFromMime, fileStem, formatFileSize } from "@/features/media/format";
 import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
+import {
+  clampPan,
+  clampZoom,
+  getTransformCss,
+  hasActiveTransform,
+  type TransformState,
+} from "@/features/media/transform";
 import {
   CROP_PRESETS,
   FORMAT_OPTIONS,
@@ -53,13 +61,54 @@ export function ImageBench() {
   const source = useMediaStore((s) => s.source);
   const output = useMediaStore((s) => s.output);
   const settings = useMediaStore((s) => s.settings);
+  const benchTransform = useMediaStore((s) => s.benchTransform);
   const processing = useMediaStore((s) => s.processing);
   const error = useMediaStore((s) => s.error);
   const loadImageFile = useMediaStore((s) => s.loadImageFile);
   const process = useMediaStore((s) => s.process);
   const clearBench = useMediaStore((s) => s.clearBench);
   const setSettings = useMediaStore((s) => s.setSettings);
+  const setBenchTransform = useMediaStore((s) => s.setBenchTransform);
+  const resetBenchTransform = useMediaStore((s) => s.resetBenchTransform);
   const setError = useMediaStore((s) => s.setError);
+
+  const [isPanning, setIsPanning] = useState(false);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const dragStartRef = useRef<{
+    x: number;
+    y: number;
+    startPanX: number;
+    startPanY: number;
+  } | null>(null);
+
+  // Global pan handler for image preview
+  useEffect(() => {
+    const handleGlobalMouseMove = (event: MouseEvent) => {
+      if (!isPanning || !dragStartRef.current || !previewContainerRef.current) return;
+      const rect = previewContainerRef.current.getBoundingClientRect();
+      const dx = event.clientX - dragStartRef.current.x;
+      const dy = event.clientY - dragStartRef.current.y;
+      const newPanX = clampPan(dragStartRef.current.startPanX + (dx / rect.width) * 100);
+      const newPanY = clampPan(dragStartRef.current.startPanY + (dy / rect.height) * 100);
+      setBenchTransform({ panX: newPanX, panY: newPanY });
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (isPanning) {
+        setIsPanning(false);
+        dragStartRef.current = null;
+      }
+    };
+
+    if (isPanning) {
+      window.addEventListener("mousemove", handleGlobalMouseMove);
+      window.addEventListener("mouseup", handleGlobalMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [isPanning, setBenchTransform]);
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
@@ -164,13 +213,36 @@ export function ImageBench() {
         </div>
       ) : null}
 
+      {/* Bench Transform Toolbar (Zoom, Pan, Rotate, Flip, Crop) */}
+      <div className={cn("mb-3.5", !source && "pointer-events-none opacity-40")}>
+        <TransformControls
+          transform={{
+            ...benchTransform,
+            cropPreset: settings.cropPreset,
+          }}
+          onChange={(partial) => {
+            if (partial.cropPreset !== undefined) {
+              setSettings({ cropPreset: partial.cropPreset });
+            }
+            setBenchTransform(partial);
+          }}
+          onReset={() => {
+            resetBenchTransform();
+            setSettings({ cropPreset: "none" });
+            toast("Bench transforms reset");
+          }}
+          title="Bench-2 // Transform & Framing Calibration"
+          disabled={!source}
+        />
+      </div>
+
       {/* Preset Controls Container */}
       <div className={cn("relative space-y-3.5", !source && "pointer-events-none opacity-40")}>
         {/* Quick Aspect Ratio Chips */}
         <div>
           <div className="mb-1.5 flex items-center justify-between">
             <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-              1. Aspect Ratio / Crop Preset:
+              1. Aspect Ratio / Framing Preset:
             </Label>
             <span className="font-mono text-[11px] font-bold text-primary">
               {CROP_PRESETS.find((p) => p.id === settings.cropPreset)?.label}
@@ -185,7 +257,10 @@ export function ImageBench() {
                   type="button"
                   size="sm"
                   variant={active ? "primary" : "outline"}
-                  onClick={() => setSettings({ cropPreset: asp.id })}
+                  onClick={() => {
+                    setSettings({ cropPreset: asp.id });
+                    setBenchTransform({ cropPreset: asp.id });
+                  }}
                   className="h-7 px-2 text-[10px] font-bold"
                 >
                   {asp.label}
@@ -324,6 +399,26 @@ export function ImageBench() {
           dimensions={source ? `${source.width} × ${source.height} px` : "—"}
           size={source ? formatFileSize(source.fileSize) : "—"}
           tag="SOURCE"
+          transform={benchTransform}
+          isSourceInteractive={Boolean(source)}
+          isPanning={isPanning}
+          onWheelZoom={(delta) => {
+            setBenchTransform({ zoom: clampZoom(benchTransform.zoom + delta) });
+          }}
+          onPanStart={(e) => {
+            dragStartRef.current = {
+              x: e.clientX,
+              y: e.clientY,
+              startPanX: benchTransform.panX,
+              startPanY: benchTransform.panY,
+            };
+            setIsPanning(true);
+          }}
+          onResetZoomPan={() => {
+            setBenchTransform({ zoom: 1, panX: 0, panY: 0 });
+            toast("Zoom & Pan Centered");
+          }}
+          containerRef={previewContainerRef}
         />
 
         {/* Optimized Card */}
@@ -430,6 +525,13 @@ function PreviewCard({
   tag,
   extra,
   budgetNote,
+  transform,
+  isSourceInteractive,
+  isPanning,
+  onWheelZoom,
+  onPanStart,
+  onResetZoomPan,
+  containerRef,
 }: {
   title: string;
   src?: string;
@@ -440,21 +542,90 @@ function PreviewCard({
   tag: string;
   extra?: { label: string; value: string; isPositive?: boolean };
   budgetNote?: string;
+  transform?: TransformState;
+  isSourceInteractive?: boolean;
+  isPanning?: boolean;
+  onWheelZoom?: (delta: number) => void;
+  onPanStart?: (e: React.MouseEvent) => void;
+  onResetZoomPan?: () => void;
+  containerRef?: React.RefObject<HTMLDivElement | null>;
 }) {
+  const hasTransform = transform && hasActiveTransform(transform);
+
   return (
     <div className="flex flex-col rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 shadow-[2px_2px_0px_var(--color-border)]">
       {/* Card Header */}
       <div className="mb-2 flex items-center justify-between">
-        <p className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">{title}</p>
+        <div className="flex items-center gap-1.5">
+          <p className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">{title}</p>
+          {hasTransform ? (
+            <span className="rounded-xs bg-signal/20 px-1 font-mono text-[9px] font-bold text-signal">
+              TRANSFORMED
+            </span>
+          ) : null}
+        </div>
         <Badge variant={sizeAccent ? "success" : "outline"} className="text-[9px]">
           {tag}
         </Badge>
       </div>
 
       {/* Image Preview Canvas */}
-      <div className="checkerboard relative mb-2.5 flex h-48 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border-2 border-border">
+      <div
+        ref={containerRef}
+        onWheel={(e) => {
+          if (isSourceInteractive && onWheelZoom) {
+            e.preventDefault();
+            const delta = e.deltaY < 0 ? 0.15 : -0.15;
+            onWheelZoom(delta);
+          }
+        }}
+        onMouseDown={(e) => {
+          if (isSourceInteractive && onPanStart && e.button === 0) {
+            onPanStart(e);
+          }
+        }}
+        onDoubleClick={() => {
+          if (isSourceInteractive && onResetZoomPan) {
+            onResetZoomPan();
+          }
+        }}
+        className={cn(
+          "checkerboard relative mb-2.5 flex h-48 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border-2 border-border select-none",
+          isSourceInteractive && transform && transform.zoom > 1
+            ? isPanning
+              ? "cursor-grabbing"
+              : "cursor-grab"
+            : isSourceInteractive
+              ? "cursor-crosshair"
+              : "cursor-default",
+        )}
+      >
+        {/* Visual Safe-Area / Crop Framing Mask */}
+        {transform && transform.cropPreset && transform.cropPreset !== "none" ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+            <div className="relative border-2 border-dashed border-signal/70 bg-signal/5 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)] w-4/5 aspect-video max-h-[80%] max-w-[85%] flex items-start justify-end p-1">
+              <span className="rounded-xs bg-signal px-1 py-0.2 font-mono text-[8px] font-bold uppercase text-foreground">
+                {transform.cropPreset}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
         {src ? (
-          <img src={src} alt={title} className="max-h-full max-w-full object-contain p-1" />
+          <img
+            src={src}
+            alt={title}
+            style={
+              transform
+                ? {
+                    transform: getTransformCss(transform),
+                    transformOrigin: "center center",
+                    transition: isPanning ? "none" : "transform 120ms ease-out",
+                  }
+                : undefined
+            }
+            className="max-h-full max-w-full object-contain p-1"
+          />
         ) : (
           <span className="flex items-center gap-2 font-mono text-xs font-semibold text-muted-foreground">
             <ImageIcon className="size-4" />

@@ -1,0 +1,6 @@
+{
+  "name": "Video Tool",
+  "description": "Local video player, frame capture, and image optimizer with browser-based media tools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

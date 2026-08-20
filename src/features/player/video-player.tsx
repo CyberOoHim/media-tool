@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
+import { TransformControls } from "@/components/media/transform-controls";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,15 @@ import { Hint } from "@/components/ui/tooltip";
 import { copyBlobToClipboard } from "@/features/media/clipboard";
 import { formatFileSize, formatTime } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
+import {
+  DEFAULT_TRANSFORM,
+  clampPan,
+  clampZoom,
+  getTransformCss,
+  hasActiveTransform,
+  rotateClockwise,
+  type TransformState,
+} from "@/features/media/transform";
 import { cn } from "@/lib/utils";
 import { captureVideoFrame } from "./capture-frame";
 import { FRAME_STEP, PLAYBACK_RATES, nextRate } from "./rates";
@@ -37,6 +47,7 @@ export function VideoPlayer() {
   const loadVideo = useMediaStore((s) => s.loadVideo);
   const captureFrame = useMediaStore((s) => s.captureFrame);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoContainerRef = useRef<HTMLDivElement>(null);
 
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -53,6 +64,17 @@ export function VideoPlayer() {
   const [seconds, setSeconds] = useState("");
   const progressRef = useRef<HTMLDivElement>(null);
 
+  // Transform State for Video
+  const [videoTransform, setVideoTransform] = useState<TransformState>(DEFAULT_TRANSFORM);
+  const [bakeTransformOnCapture, setBakeTransformOnCapture] = useState(true);
+  const [isPanning, setIsPanning] = useState(false);
+  const dragStartRef = useRef<{
+    x: number;
+    y: number;
+    startPanX: number;
+    startPanY: number;
+  } | null>(null);
+
   const hasVideo = Boolean(videoSession);
   const longForm = duration >= 3600;
 
@@ -62,6 +84,7 @@ export function VideoPlayer() {
     setCurrent(0);
     setDuration(0);
     setVideoDims(null);
+    setVideoTransform(DEFAULT_TRANSFORM);
   }, [videoSession?.objectUrl]);
 
   const triggerShutterFlash = () => {
@@ -106,17 +129,22 @@ export function VideoPlayer() {
     }
     triggerShutterFlash();
     try {
-      const frame = await captureVideoFrame(el);
+      const activeTransform = bakeTransformOnCapture ? videoTransform : undefined;
+      const frame = await captureVideoFrame(el, activeTransform);
       captureFrame({
         ...frame,
         timestampSec: el.currentTime,
         videoName: session.fileName,
       });
-      toast.success(`Snapped frame @ ${formatTime(el.currentTime, true)} ➜ Bench`);
+      const note =
+        bakeTransformOnCapture && hasActiveTransform(videoTransform)
+          ? " (Transformed)"
+          : "";
+      toast.success(`Snapped frame @ ${formatTime(el.currentTime, true)}${note} ➜ Bench`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Capture failed");
     }
-  }, [captureFrame]);
+  }, [bakeTransformOnCapture, captureFrame, videoTransform]);
 
   const burstCapture = useCallback(async () => {
     const el = videoRef.current;
@@ -127,9 +155,10 @@ export function VideoPlayer() {
     }
     triggerShutterFlash();
     try {
+      const activeTransform = bakeTransformOnCapture ? videoTransform : undefined;
       // Capture 3 frames in quick succession
       for (let i = 0; i < 3; i++) {
-        const frame = await captureVideoFrame(el);
+        const frame = await captureVideoFrame(el, activeTransform);
         captureFrame({
           ...frame,
           timestampSec: el.currentTime,
@@ -144,7 +173,7 @@ export function VideoPlayer() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Burst capture failed");
     }
-  }, [captureFrame]);
+  }, [bakeTransformOnCapture, captureFrame, videoTransform]);
 
   const copyFrame = useCallback(async () => {
     const el = videoRef.current;
@@ -154,13 +183,14 @@ export function VideoPlayer() {
     }
     triggerShutterFlash();
     try {
-      const frame = await captureVideoFrame(el);
+      const activeTransform = bakeTransformOnCapture ? videoTransform : undefined;
+      const frame = await captureVideoFrame(el, activeTransform);
       await copyBlobToClipboard(frame.blob);
       toast.success("Copied frame to clipboard");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Copy failed");
     }
-  }, []);
+  }, [bakeTransformOnCapture, videoTransform]);
 
   const toggleMute = useCallback(() => {
     const el = videoRef.current;
@@ -191,6 +221,7 @@ export function VideoPlayer() {
     [],
   );
 
+  // Timeline dragging
   useEffect(() => {
     const onMove = (event: MouseEvent) => {
       if (dragging) seekFromClientX(event.clientX);
@@ -212,6 +243,36 @@ export function VideoPlayer() {
     };
   }, [dragging, seekFromClientX]);
 
+  // Viewport Pan drag handler
+  useEffect(() => {
+    const handleGlobalMouseMove = (event: MouseEvent) => {
+      if (!isPanning || !dragStartRef.current || !videoContainerRef.current) return;
+      const rect = videoContainerRef.current.getBoundingClientRect();
+      const dx = event.clientX - dragStartRef.current.x;
+      const dy = event.clientY - dragStartRef.current.y;
+      const newPanX = clampPan(dragStartRef.current.startPanX + (dx / rect.width) * 100);
+      const newPanY = clampPan(dragStartRef.current.startPanY + (dy / rect.height) * 100);
+      setVideoTransform((prev) => ({ ...prev, panX: newPanX, panY: newPanY }));
+    };
+
+    const handleGlobalMouseUp = () => {
+      if (isPanning) {
+        setIsPanning(false);
+        dragStartRef.current = null;
+      }
+    };
+
+    if (isPanning) {
+      window.addEventListener("mousemove", handleGlobalMouseMove);
+      window.addEventListener("mouseup", handleGlobalMouseUp);
+    }
+    return () => {
+      window.removeEventListener("mousemove", handleGlobalMouseMove);
+      window.removeEventListener("mouseup", handleGlobalMouseUp);
+    };
+  }, [isPanning]);
+
+  // Keyboard shortcuts
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!videoSession) return;
@@ -273,13 +334,63 @@ export function VideoPlayer() {
           event.preventDefault();
           fullscreen();
           break;
+        case "r":
+          event.preventDefault();
+          setVideoTransform((prev) => ({
+            ...prev,
+            rotation: rotateClockwise(prev.rotation),
+          }));
+          toast("Rotated +90°");
+          break;
+        case "h":
+          event.preventDefault();
+          setVideoTransform((prev) => ({ ...prev, flipH: !prev.flipH }));
+          toast("Flipped Horizontal");
+          break;
+        case "v":
+          event.preventDefault();
+          setVideoTransform((prev) => ({ ...prev, flipV: !prev.flipV }));
+          toast("Flipped Vertical");
+          break;
+        case "+":
+        case "=":
+          event.preventDefault();
+          setVideoTransform((prev) => ({
+            ...prev,
+            zoom: clampZoom(prev.zoom + 0.2),
+          }));
+          break;
+        case "-":
+        case "_":
+          event.preventDefault();
+          setVideoTransform((prev) => ({
+            ...prev,
+            zoom: clampZoom(prev.zoom - 0.2),
+          }));
+          break;
+        case "0":
+          event.preventDefault();
+          setVideoTransform(DEFAULT_TRANSFORM);
+          toast("Transforms Reset");
+          break;
         default:
           break;
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [applyRate, burstCapture, capture, copyFrame, fullscreen, rate, seekBy, toggleMute, togglePlay, videoSession]);
+  }, [
+    applyRate,
+    burstCapture,
+    capture,
+    copyFrame,
+    fullscreen,
+    rate,
+    seekBy,
+    toggleMute,
+    togglePlay,
+    videoSession,
+  ]);
 
   const gotoTyped = () => {
     const el = videoRef.current;
@@ -343,7 +454,44 @@ export function VideoPlayer() {
       <div className="relative overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-theater shadow-inner">
         {videoSession ? (
           <div
-            className="relative flex min-h-[240px] items-center justify-center lg:min-h-[320px]"
+            ref={videoContainerRef}
+            className={cn(
+              "relative flex min-h-[240px] items-center justify-center overflow-hidden lg:min-h-[320px] select-none",
+              videoTransform.zoom > 1 || isPanning
+                ? isPanning
+                  ? "cursor-grabbing"
+                  : "cursor-grab"
+                : "cursor-default",
+            )}
+            onWheel={(event) => {
+              event.preventDefault();
+              const delta = event.deltaY < 0 ? 0.15 : -0.15;
+              setVideoTransform((prev) => ({
+                ...prev,
+                zoom: clampZoom(prev.zoom + delta),
+              }));
+            }}
+            onMouseDown={(event) => {
+              if (event.button === 0) {
+                dragStartRef.current = {
+                  x: event.clientX,
+                  y: event.clientY,
+                  startPanX: videoTransform.panX,
+                  startPanY: videoTransform.panY,
+                };
+                setIsPanning(true);
+              }
+            }}
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              setVideoTransform((prev) => ({
+                ...prev,
+                zoom: 1,
+                panX: 0,
+                panY: 0,
+              }));
+              toast("Zoom & Pan Centered");
+            }}
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes("Files")) event.preventDefault();
             }}
@@ -360,13 +508,31 @@ export function VideoPlayer() {
             <div className="pointer-events-none absolute inset-2 z-10 flex flex-col justify-between text-muted/30 font-mono text-[10px]">
               <div className="flex justify-between">
                 <span>⌜ VCR-REC</span>
-                <span>CH-01 ⌝</span>
+                <div className="flex items-center gap-1.5">
+                  {hasActiveTransform(videoTransform) ? (
+                    <span className="rounded-xs bg-signal/20 px-1 text-signal font-bold">
+                      TRANSFORM ACTIVE
+                    </span>
+                  ) : null}
+                  <span>CH-01 ⌝</span>
+                </div>
               </div>
               <div className="flex justify-between">
                 <span>⌞ {rate}× SPEED</span>
                 <span>STILL-CAPTURE ⌟</span>
               </div>
             </div>
+
+            {/* Visual Safe-Area / Crop Framing Mask */}
+            {videoTransform.cropPreset !== "none" ? (
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                <div className="relative border-2 border-dashed border-signal/70 bg-signal/5 shadow-[0_0_0_9999px_rgba(0,0,0,0.45)] w-4/5 aspect-video max-h-[80%] max-w-[85%] flex items-start justify-end p-1">
+                  <span className="rounded-xs bg-signal px-1 py-0.2 font-mono text-[8px] font-bold uppercase text-foreground">
+                    {videoTransform.cropPreset}
+                  </span>
+                </div>
+              </div>
+            ) : null}
 
             {/* Shutter Flash Layer */}
             {flashing ? (
@@ -376,6 +542,11 @@ export function VideoPlayer() {
             <video
               ref={videoRef}
               src={videoSession.objectUrl}
+              style={{
+                transform: getTransformCss(videoTransform),
+                transformOrigin: "center center",
+                transition: isPanning ? "none" : "transform 120ms ease-out",
+              }}
               className="max-h-[50vh] w-full bg-black object-contain lg:max-h-[56vh]"
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
@@ -628,6 +799,24 @@ export function VideoPlayer() {
         </div>
       </div>
 
+      {/* Deck Transform Toolbar (Zoom, Pan, Rotate, Flip, Crop) */}
+      <div className="mt-3">
+        <TransformControls
+          transform={videoTransform}
+          onChange={(partial) => setVideoTransform((prev) => ({ ...prev, ...partial }))}
+          onReset={() => {
+            setVideoTransform(DEFAULT_TRANSFORM);
+            toast("Deck transforms reset");
+          }}
+          title="Deck-1 // Transform & Crop Framing"
+          disabled={disabled}
+          bakeToggle={{
+            enabled: bakeTransformOnCapture,
+            onToggle: (val) => setBakeTransformOnCapture(val),
+          }}
+        />
+      </div>
+
       {/* Capture Action Bar (Snap, Burst, Copy) */}
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Button
@@ -740,6 +929,11 @@ export function VideoPlayer() {
             {videoDims ? (
               <span>
                 <strong className="text-foreground">Res:</strong> {videoDims.w} × {videoDims.h}
+              </span>
+            ) : null}
+            {hasActiveTransform(videoTransform) ? (
+              <span className="text-signal font-bold">
+                ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot: {videoTransform.rotation}°
               </span>
             ) : null}
           </div>
