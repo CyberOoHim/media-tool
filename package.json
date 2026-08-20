@@ -14,7 +14,7 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/brand-check.test.mjs scripts/browser-smoke-verdict.test.mjs scripts/manifest.test.mjs",
+    "test": "node --test scripts/brand-check.test.mjs scripts/browser-smoke-verdict.test.mjs scripts/manifest.test.mjs scripts/theme.test.mjs scripts/ui-zoom.test.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

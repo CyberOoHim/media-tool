@@ -10,6 +10,7 @@ const SHORTCUTS = [
   { key: "[ / ]", desc: "Decrease / increase playback speed" },
   { key: "+ / -", desc: "Zoom UI font size in / out" },
   { key: "0", desc: "Reset UI font size zoom (100%)" },
+  { key: "Shift + D", desc: "Switch Day / Dark theme" },
   { key: "S", desc: "Snap frame to bench & filmstrip" },
   { key: "Shift + S", desc: "Burst capture (3 frames)" },
   { key: "C", desc: "Copy current frame to clipboard" },

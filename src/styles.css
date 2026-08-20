@@ -7,40 +7,40 @@
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* Retro Palette (Dribbble #15691455) */
-  --color-background: #fceee2;
-  --color-foreground: #14110f;
-  --color-card: #fffdf9;
-  --color-card-foreground: #14110f;
-  --color-popover: #fffdf9;
-  --color-popover-foreground: #14110f;
+  /* Retro Palette (Theme-aware dynamic variables) */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   
-  --color-primary: #335fab;
-  --color-primary-foreground: #ffffff;
-  --color-secondary: #f4e5d4;
-  --color-secondary-foreground: #14110f;
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   
-  --color-muted: #ead9c8;
-  --color-muted-foreground: #604f36;
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   
-  --color-accent: #956246;
-  --color-accent-foreground: #ffffff;
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   
-  --color-signal: #c4a368;
-  --color-signal-foreground: #14110f;
+  --color-signal: var(--signal);
+  --color-signal-foreground: var(--signal-foreground);
   
-  --color-destructive: #b83838;
-  --color-destructive-foreground: #ffffff;
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   
-  --color-success: #4a7c59;
-  --color-success-foreground: #ffffff;
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   
-  --color-border: #14110f;
-  --color-input: #14110f;
-  --color-ring: #335fab;
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
   
-  --color-theater: #1d1917;
-  --color-theater-bezel: #2b2522;
+  --color-theater: var(--theater);
+  --color-theater-bezel: var(--theater-bezel);
 
   --radius-sm: 4px;
   --radius-md: 8px;
@@ -51,6 +51,135 @@
 
 :root {
   --ui-zoom: 1;
+
+  /* Default Theme: Dark (Retro Obsidian / VCR Midnight) */
+  --background: #12100f;
+  --foreground: #f5ede4;
+  --card: #1c1917;
+  --card-foreground: #f5ede4;
+  --popover: #1c1917;
+  --popover-foreground: #f5ede4;
+  
+  --primary: #4a7ad1;
+  --primary-foreground: #ffffff;
+  --secondary: #262220;
+  --secondary-foreground: #f5ede4;
+  
+  --muted: #2d2825;
+  --muted-foreground: #a39688;
+  
+  --accent: #ba7b57;
+  --accent-foreground: #ffffff;
+  
+  --signal: #d8b168;
+  --signal-foreground: #14110f;
+  
+  --destructive: #e05353;
+  --destructive-foreground: #ffffff;
+  
+  --success: #52a36d;
+  --success-foreground: #ffffff;
+  
+  --border: #423933;
+  --input: #423933;
+  --ring: #4a7ad1;
+  
+  --theater: #0b0a09;
+  --theater-bezel: #171513;
+
+  --dot-color: rgba(245, 237, 228, 0.05);
+  --checker-bg: #181514;
+  --checker-dot: #25201d;
+
+  color-scheme: dark;
+}
+
+/* Explicit Dark Theme */
+:root[data-theme="dark"],
+html.dark {
+  --background: #12100f;
+  --foreground: #f5ede4;
+  --card: #1c1917;
+  --card-foreground: #f5ede4;
+  --popover: #1c1917;
+  --popover-foreground: #f5ede4;
+  
+  --primary: #4a7ad1;
+  --primary-foreground: #ffffff;
+  --secondary: #262220;
+  --secondary-foreground: #f5ede4;
+  
+  --muted: #2d2825;
+  --muted-foreground: #a39688;
+  
+  --accent: #ba7b57;
+  --accent-foreground: #ffffff;
+  
+  --signal: #d8b168;
+  --signal-foreground: #14110f;
+  
+  --destructive: #e05353;
+  --destructive-foreground: #ffffff;
+  
+  --success: #52a36d;
+  --success-foreground: #ffffff;
+  
+  --border: #423933;
+  --input: #423933;
+  --ring: #4a7ad1;
+  
+  --theater: #0b0a09;
+  --theater-bezel: #171513;
+
+  --dot-color: rgba(245, 237, 228, 0.05);
+  --checker-bg: #181514;
+  --checker-dot: #25201d;
+
+  color-scheme: dark;
+}
+
+/* Day / Light Theme */
+:root[data-theme="light"],
+html.light {
+  --background: #fceee2;
+  --foreground: #14110f;
+  --card: #fffdf9;
+  --card-foreground: #14110f;
+  --popover: #fffdf9;
+  --popover-foreground: #14110f;
+  
+  --primary: #335fab;
+  --primary-foreground: #ffffff;
+  --secondary: #f4e5d4;
+  --secondary-foreground: #14110f;
+  
+  --muted: #ead9c8;
+  --muted-foreground: #604f36;
+  
+  --accent: #956246;
+  --accent-foreground: #ffffff;
+  
+  --signal: #c4a368;
+  --signal-foreground: #14110f;
+  
+  --destructive: #b83838;
+  --destructive-foreground: #ffffff;
+  
+  --success: #4a7c59;
+  --success-foreground: #ffffff;
+  
+  --border: #14110f;
+  --input: #14110f;
+  --ring: #335fab;
+  
+  --theater: #1d1917;
+  --theater-bezel: #2b2522;
+
+  --dot-color: rgba(96, 79, 54, 0.08);
+  --checker-bg: #f7ede2;
+  --checker-dot: #ebdcd0;
+
+  color-scheme: light;
 }
 
 @layer base {
@@ -70,7 +199,7 @@
   body {
     min-height: 100dvh;
     background-image: 
-      radial-gradient(circle at 1px 1px, rgba(96, 79, 54, 0.08) 1px, transparent 0);
+      radial-gradient(circle at 1px 1px, var(--dot-color) 1px, transparent 0);
     background-size: 24px 24px;
   }
 
@@ -116,12 +245,12 @@
 
   /* Retro Checked Image Canvas */
   .checkerboard {
-    background-color: #f7ede2;
+    background-color: var(--checker-bg);
     background-image:
-      linear-gradient(45deg, #ebdcd0 25%, transparent 25%),
-      linear-gradient(-45deg, #ebdcd0 25%, transparent 25%),
-      linear-gradient(45deg, transparent 75%, #ebdcd0 75%),
-      linear-gradient(-45deg, transparent 75%, #ebdcd0 75%);
+      linear-gradient(45deg, var(--checker-dot) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--checker-dot) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--checker-dot) 75%),
+      linear-gradient(-45deg, var(--checker-dot) 75%, var(--checker-dot) 75%);
     background-size: 16px 16px;
     background-position:
       0 0,

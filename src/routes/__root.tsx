@@ -21,7 +21,7 @@ export const Route = createRootRoute({
         name: "description",
         content: "Local video player, frame capture, and image optimizer. Everything stays in your browser.",
       },
-      { name: "theme-color", content: "#fceee2" },
+      { name: "theme-color", content: "#12100f" },
     ],
     links: [
       { rel: "icon", type: "image/svg+xml", href: assetUrl("favicon.svg") },
@@ -38,12 +38,12 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark" data-theme="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var z=localStorage.getItem("video_tool_ui_zoom");if(z){var v=parseInt(z,10);if(v>=75&&v<=300){document.documentElement.style.zoom=(v/100);document.documentElement.style.setProperty("--ui-zoom",(v/100));}}}catch(e){}`,
+            __html: `try{var t=localStorage.getItem("video_tool_theme")||"dark";var d=document.documentElement;d.classList.remove("dark","light");d.classList.add(t);d.setAttribute("data-theme",t);d.style.colorScheme=t;var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute("content",t==="light"?"#fceee2":"#12100f");}}catch(e){}try{var z=localStorage.getItem("video_tool_ui_zoom");if(z){var v=parseInt(z,10);if(v>=75&&v<=300){document.documentElement.style.zoom=(v/100);document.documentElement.style.setProperty("--ui-zoom",(v/100));}}}catch(e){}`,
           }}
         />
       </head>

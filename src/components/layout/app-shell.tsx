@@ -2,7 +2,9 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { Film, Image as ImageIcon, LayoutGrid, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-dialog";
+import { ThemeSwitch } from "@/components/layout/theme-switch";
 import { UiZoomControl } from "@/components/layout/ui-zoom-control";
+import { useThemeSync } from "@/lib/theme";
 import { useUiZoomKeyboardShortcuts } from "@/lib/ui-zoom";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +17,7 @@ const NAV = [
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  useThemeSync();
   useUiZoomKeyboardShortcuts();
 
   useEffect(() => {
@@ -79,6 +82,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* Header Controls */}
           <div className="flex items-center gap-2">
+            <ThemeSwitch />
             <UiZoomControl />
             <KeyboardShortcutsDialog />
 
