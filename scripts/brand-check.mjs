@@ -1,8 +1,8 @@
 /**
  * Brand-asset gate shared by browser-smoke.mjs (and unit-testable without a
  * browser): a canvas app is almost always a game / visually rich app, and
- * those must ship a custom share card — the default og.grok.me placeholder is
- * not acceptable for them (see .grok/skills/og/SKILL.md).
+ * those must ship a custom share card — the default og.app.me placeholder is
+ * not acceptable for them (see .app/skills/og/SKILL.md).
  *
  * Games must also set type=x:game in src/lib/og/site.json so the platform
  * injector emits og:type for X game-card unfurls, and public/x-banner.jpg for
@@ -15,7 +15,7 @@
  */
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { OG_SITE_REL_PATH, readOgSite, siteHasCustomCard } from "./grok-pwa-shared.mjs";
+import { OG_SITE_REL_PATH, readOgSite, siteHasCustomCard } from "./app-pwa-shared.mjs";
 
 // Over this, link scrapers (X card previews included) time out or skip the
 // image, so the card silently fails to unfurl. The og skill's JPEG contract
@@ -27,7 +27,7 @@ export function siteDeclaresOgTypeGame(site) {
 }
 
 export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }) {
-  const skillPath = join(workspaceRoot, ".grok/skills/og/SKILL.md");
+  const skillPath = join(workspaceRoot, ".app/skills/og/SKILL.md");
   const sitePath = join(workspaceRoot, OG_SITE_REL_PATH);
   const site = readOgSite(workspaceRoot);
   const cardPath = [
@@ -55,13 +55,13 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
     warnings.push(
       `BRAND WARNING: this looks like a game/canvas app but ${workspaceRoot}/public/og.jpg `
         + "is missing. Games and visually rich apps must ship a custom 1200x630 share card "
-        + "built from the app's own art — the default og.grok.me placeholder card is not "
+        + "built from the app's own art — the default og.app.me placeholder card is not "
         + `acceptable for them. You are not done: open ${skillPath} and finish the `
         + "brand-asset pass.",
     );
   } else {
     warnings.push(
-      "BRAND NOTE: no custom public/og.jpg — the platform will serve the og.grok.me placeholder. "
+      "BRAND NOTE: no custom public/og.jpg — the platform will serve the og.app.me placeholder. "
         + "Custom cards are the default for games of every kind (DOM board/word games included), "
         + "whimsical apps, creative tools, and brand-forward pages — only plain utilities "
         + "(converters, CRUD trackers, admin dashboards) keep the placeholder. If this app "
@@ -79,7 +79,7 @@ export function computeBrandWarnings({ hasCanvas, workspaceRoot = "/workspace" }
   }
 
   // Games with a custom link card must also ship the 50:11 X feed card.
-  // Skip while still on the og.grok.me placeholder — that pass has not started yet.
+  // Skip while still on the og.app.me placeholder — that pass has not started yet.
   if (hasCanvas && cardPath !== undefined) {
     const bannerPath = join(workspaceRoot, "public/x-banner.jpg");
     if (!existsSync(bannerPath)) {

@@ -14,7 +14,7 @@ dist
 screenshots
 artifacts
 attachments
-.grok
+.app
 AGENTS.md
 .node_modules.lock
 .playwright-mcp
