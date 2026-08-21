@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ExportConfig, TrimMode } from "../player/trim-types";
 import { compressImage, loadHtmlImage } from "./compress";
 import { downloadBlob } from "./download";
 import { extFromMime, fileStem, timestampForFilename } from "./format";
@@ -14,6 +15,14 @@ import {
   type VideoSession,
 } from "./types";
 
+export const DEFAULT_EXPORT_CONFIG: ExportConfig = {
+  quality: "lossless",
+  format: "mp4",
+  bitrateMbps: 18,
+  fps: 30,
+  keepAudio: true,
+};
+
 type MediaState = {
   video: VideoSession | null;
   source: SourceImage | null;
@@ -23,6 +32,15 @@ type MediaState = {
   benchTransform: TransformState;
   processing: boolean;
   error: string | null;
+
+  // Video Cut & Trim State
+  trimMode: TrimMode;
+  trimStart: number | null;
+  trimEnd: number | null;
+  includeScreenshotFrame: boolean; // default: false (not included)
+  previewTrimMode: boolean;
+  exportConfig: ExportConfig;
+
   loadVideo: (file: File) => void;
   clearVideo: () => void;
   loadImageFile: (file: File) => Promise<void>;
@@ -46,6 +64,21 @@ type MediaState = {
   clearBench: () => void;
   resetAll: () => void;
   setError: (message: string | null) => void;
+
+  // Cut & Trim Actions
+  setTrimMode: (mode: TrimMode) => void;
+  setTrimStart: (sec: number | null) => void;
+  setTrimEnd: (sec: number | null) => void;
+  setTrimRange: (start: number | null, end: number | null) => void;
+  setIncludeScreenshotFrame: (include: boolean) => void;
+  setPreviewTrimMode: (preview: boolean) => void;
+  setExportConfig: (partial: Partial<ExportConfig>) => void;
+  applyScreenshotToTrim: (
+    captureId: string,
+    target: "start" | "end",
+    includeFrameOverride?: boolean,
+  ) => { start: number | null; end: number | null };
+  clearTrimRange: () => void;
 };
 
 function nextId(): string {
@@ -63,6 +96,14 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   benchTransform: { ...DEFAULT_TRANSFORM },
   processing: false,
   error: null,
+
+  // Cut & Trim Initial State
+  trimMode: "trim",
+  trimStart: null,
+  trimEnd: null,
+  includeScreenshotFrame: false, // Default: false (not included)
+  previewTrimMode: false,
+  exportConfig: { ...DEFAULT_EXPORT_CONFIG },
 
   loadVideo: (file) => {
     if (!file.type.startsWith("video/")) {
@@ -338,4 +379,91 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   setError: (message) => set({ error: message }),
+
+  setTrimMode: (mode) => set({ trimMode: mode }),
+
+  setTrimStart: (sec) => {
+    set((state) => {
+      const finalStart = sec !== null ? Math.max(0, sec) : null;
+      let finalEnd = state.trimEnd;
+      if (finalStart !== null && finalEnd !== null && finalStart >= finalEnd) {
+        // If start surpasses end, keep start and leave end or push end
+        finalEnd = null;
+      }
+      return { trimStart: finalStart, trimEnd: finalEnd };
+    });
+  },
+
+  setTrimEnd: (sec) => {
+    set((state) => {
+      const finalEnd = sec !== null ? Math.max(0, sec) : null;
+      let finalStart = state.trimStart;
+      if (finalStart !== null && finalEnd !== null && finalEnd <= finalStart) {
+        finalStart = null;
+      }
+      return { trimStart: finalStart, trimEnd: finalEnd };
+    });
+  },
+
+  setTrimRange: (start, end) => {
+    const s = start !== null ? Math.max(0, start) : null;
+    const e = end !== null ? Math.max(0, end) : null;
+    if (s !== null && e !== null && s >= e) {
+      set({ trimStart: s, trimEnd: null });
+    } else {
+      set({ trimStart: s, trimEnd: e });
+    }
+  },
+
+  setIncludeScreenshotFrame: (include) => set({ includeScreenshotFrame: include }),
+
+  setPreviewTrimMode: (preview) => set({ previewTrimMode: preview }),
+
+  setExportConfig: (partial) =>
+    set((state) => ({ exportConfig: { ...state.exportConfig, ...partial } })),
+
+  applyScreenshotToTrim: (captureId, target, includeFrameOverride) => {
+    const { captures, includeScreenshotFrame, trimStart, trimEnd } = get();
+    const item = captures.find((c) => c.id === captureId);
+    if (!item) return { start: trimStart, end: trimEnd };
+
+    const include =
+      typeof includeFrameOverride === "boolean"
+        ? includeFrameOverride
+        : includeScreenshotFrame;
+
+    // Approximate frame duration ~33.3ms (1/30fps)
+    const frameDelta = 0.0333;
+    let nextStart = trimStart;
+    let nextEnd = trimEnd;
+
+    if (target === "start") {
+      if (include) {
+        // Included: starts exactly at screenshot timestamp
+        nextStart = item.timestampSec;
+      } else {
+        // Excluded (default): starts after the screenshot frame
+        nextStart = item.timestampSec + frameDelta;
+      }
+      if (nextEnd !== null && nextStart >= nextEnd) {
+        nextEnd = null;
+      }
+    } else {
+      if (include) {
+        // Included: ends at or right after screenshot timestamp
+        nextEnd = item.timestampSec;
+      } else {
+        // Excluded (default): ends before the screenshot frame
+        nextEnd = Math.max(0, item.timestampSec - 0.001);
+      }
+      if (nextStart !== null && nextEnd <= nextStart) {
+        nextStart = null;
+      }
+    }
+
+    set({ trimStart: nextStart, trimEnd: nextEnd });
+    return { start: nextStart, end: nextEnd };
+  },
+
+  clearTrimRange: () => set({ trimStart: null, trimEnd: null }),
 }));

@@ -37,6 +37,21 @@ export function formatTime(seconds: number, forceHours = false): string {
   return `${pad2(m)}:${pad2(s)}`;
 }
 
+/** Millisecond-accurate formatting: MM:SS.mmm or HH:MM:SS.mmm */
+export function formatTimePrecise(seconds: number, forceHours = false): string {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return forceHours ? "00:00:00.000" : "00:00.000";
+  }
+  const totalSec = Math.floor(seconds);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const ms = Math.floor((seconds % 1) * 1000);
+  const msStr = String(ms).padStart(3, "0");
+  if (h > 0 || forceHours) return `${pad2(h)}:${pad2(m)}:${pad2(s)}.${msStr}`;
+  return `${pad2(m)}:${pad2(s)}.${msStr}`;
+}
+
 export function timestampForFilename(seconds: number): string {
   return formatTime(seconds, seconds >= 3600).replaceAll(":", "-");
 }

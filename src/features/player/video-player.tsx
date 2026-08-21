@@ -3,12 +3,14 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Copy,
+  Eye,
   FastForward,
   Layers,
   Maximize,
   Pause,
   Play,
   Rewind,
+  Scissors,
   SkipBack,
   SkipForward,
   Upload,
@@ -27,7 +29,7 @@ import { Slider } from "@/components/ui/slider";
 import { Hint } from "@/components/ui/tooltip";
 import { copyBlobToClipboard } from "@/features/media/clipboard";
 import { getCropAspectRatio, resolveCropTarget } from "@/features/media/crop";
-import { formatFileSize, formatTime } from "@/features/media/format";
+import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
 import {
   DEFAULT_TRANSFORM,
@@ -43,12 +45,23 @@ import { CROP_PRESETS } from "@/features/media/types";
 import { cn } from "@/lib/utils";
 import { captureVideoFrame } from "./capture-frame";
 import { FRAME_STEP, PLAYBACK_RATES, nextRate } from "./rates";
+import { TrimControls } from "./trim-controls";
 
 export function VideoPlayer() {
   const videoSession = useMediaStore((s) => s.video);
   const captures = useMediaStore((s) => s.captures);
   const loadVideo = useMediaStore((s) => s.loadVideo);
   const captureFrame = useMediaStore((s) => s.captureFrame);
+
+  // Trim state
+  const trimMode = useMediaStore((s) => s.trimMode);
+  const trimStart = useMediaStore((s) => s.trimStart);
+  const trimEnd = useMediaStore((s) => s.trimEnd);
+  const previewTrimMode = useMediaStore((s) => s.previewTrimMode);
+  const setTrimStart = useMediaStore((s) => s.setTrimStart);
+  const setTrimEnd = useMediaStore((s) => s.setTrimEnd);
+  const setPreviewTrimMode = useMediaStore((s) => s.setPreviewTrimMode);
+  const clearTrimRange = useMediaStore((s) => s.clearTrimRange);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
@@ -345,6 +358,26 @@ export function VideoPlayer() {
           event.preventDefault();
           void capture();
           break;
+        case "i":
+          event.preventDefault();
+          setTrimStart(videoRef.current?.currentTime ?? 0);
+          toast.success(`Marked IN (Start) @ ${formatTimePrecise(videoRef.current?.currentTime ?? 0)}`);
+          break;
+        case "o":
+          event.preventDefault();
+          setTrimEnd(videoRef.current?.currentTime ?? 0);
+          toast.success(`Marked OUT (End) @ ${formatTimePrecise(videoRef.current?.currentTime ?? 0)}`);
+          break;
+        case "x":
+          event.preventDefault();
+          clearTrimRange();
+          toast("Cleared Cut/Trim Points");
+          break;
+        case "p":
+          event.preventDefault();
+          setPreviewTrimMode(!previewTrimMode);
+          toast(previewTrimMode ? "Preview Mode: OFF" : "Preview Mode: ON (Live Range)");
+          break;
         case "c":
           event.preventDefault();
           void copyFrame();
@@ -406,10 +439,15 @@ export function VideoPlayer() {
     applyRate,
     burstCapture,
     capture,
+    clearTrimRange,
     copyFrame,
     fullscreen,
+    previewTrimMode,
     rate,
     seekBy,
+    setPreviewTrimMode,
+    setTrimEnd,
+    setTrimStart,
     toggleMute,
     togglePlay,
     videoSession,
@@ -688,6 +726,36 @@ export function VideoPlayer() {
               }}
               onTimeUpdate={(event) => {
                 const el = event.currentTarget;
+                const time = el.currentTime;
+
+                // Live Trim/Cut Playback Preview Skipping
+                if (previewTrimMode && Number.isFinite(el.duration) && el.duration > 0) {
+                  const s = trimStart ?? 0;
+                  const e = trimEnd ?? el.duration;
+
+                  if (trimMode === "trim") {
+                    // Retain only [s, e]
+                    if (time < s - 0.05) {
+                      el.currentTime = s;
+                      return;
+                    }
+                    if (time >= e) {
+                      el.pause();
+                      el.currentTime = s;
+                      setPlaying(false);
+                      toast("Trim preview reached OUT point");
+                      return;
+                    }
+                  } else {
+                    // Cut: Remove [s, e] - automatically skip ahead
+                    if (time >= s && time < e) {
+                      el.currentTime = e;
+                      toast("Skipped cut period");
+                      return;
+                    }
+                  }
+                }
+
                 if (el.duration - el.currentTime < 0.1) setCurrent(el.duration);
                 else setCurrent(el.currentTime);
               }}
@@ -721,11 +789,29 @@ export function VideoPlayer() {
         )}
       </div>
 
-      {/* Retro Timeline & Scrubber with Capture Bookmark Pins */}
+      {/* Retro Timeline & Scrubber with Cut/Trim Region & Capture Bookmark Pins */}
       <div className="mt-3.5 space-y-1.5">
         <div className="flex items-center justify-between text-[11px] font-mono font-semibold text-muted-foreground">
-          <span className="uppercase tracking-wider">Timeline Scrubber</span>
-          <span>{captures.length} Bookmark Pins</span>
+          <span className="flex items-center gap-1.5 uppercase tracking-wider">
+            <Scissors className="size-3 text-signal" />
+            <span>Timeline Scrubber</span>
+            {(trimStart !== null || trimEnd !== null) && (
+              <Badge variant="outline" className={cn(
+                "h-4 px-1 text-[9px] uppercase font-bold",
+                trimMode === "trim" ? "border-success text-success" : "border-destructive text-destructive",
+              )}>
+                {trimMode === "trim" ? "Trim Active" : "Cut Active"}
+              </Badge>
+            )}
+          </span>
+          <div className="flex items-center gap-2">
+            {previewTrimMode ? (
+              <span className="flex items-center gap-1 text-[10px] text-signal font-bold animate-pulse">
+                <Eye className="size-2.5" /> Preview Mode Active
+              </span>
+            ) : null}
+            <span>{captures.length} Bookmark Pins</span>
+          </div>
         </div>
 
         <div
@@ -737,7 +823,7 @@ export function VideoPlayer() {
           aria-label="Seek"
           tabIndex={disabled ? -1 : 0}
           className={cn(
-            "group relative h-5 cursor-pointer rounded-[var(--radius-sm)] border-2 border-border bg-secondary shadow-[1px_1px_0px_var(--color-border)] select-none",
+            "group relative h-6 cursor-pointer rounded-[var(--radius-sm)] border-2 border-border bg-secondary shadow-[1px_1px_0px_var(--color-border)] select-none overflow-hidden",
             disabled && "pointer-events-none opacity-50",
           )}
           onMouseDown={(event) => {
@@ -755,19 +841,79 @@ export function VideoPlayer() {
         >
           {/* Timeline Tick Marks Background */}
           <div className="absolute inset-0 flex justify-between px-1 opacity-25 pointer-events-none">
-            {Array.from({ length: 11 }).map((_, i) => (
+            {Array.from({ length: 21 }).map((_, i) => (
               <span key={i} className="h-full w-[1px] bg-border" />
             ))}
           </div>
 
+          {/* Shaded Trim / Cut Range Overlays */}
+          {duration > 0 && (trimStart !== null || trimEnd !== null) ? (() => {
+            const startPct = trimStart !== null ? Math.min(100, Math.max(0, (trimStart / duration) * 100)) : 0;
+            const endPct = trimEnd !== null ? Math.min(100, Math.max(0, (trimEnd / duration) * 100)) : 100;
+            const left = Math.min(startPct, endPct);
+            const width = Math.max(0, Math.abs(endPct - startPct));
+
+            if (trimMode === "trim") {
+              // Trim: Highlight retained region in green/signal
+              return (
+                <div
+                  className="absolute top-0 bottom-0 bg-success/20 border-x-2 border-success pointer-events-none z-10"
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                />
+              );
+            } else {
+              // Cut: Highlight removed region in red hatched/danger
+              return (
+                <div
+                  className="absolute top-0 bottom-0 bg-destructive/30 border-x-2 border-destructive pointer-events-none z-10"
+                  style={{
+                    left: `${left}%`,
+                    width: `${width}%`,
+                    backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(239, 68, 68, 0.25) 4px, rgba(239, 68, 68, 0.25) 8px)",
+                  }}
+                />
+              );
+            }
+          })() : null}
+
           {/* Played Range Fill */}
           <div
-            className="relative h-full bg-signal transition-all"
+            className="relative h-full bg-signal/70 transition-all z-1"
             style={{ width: `${progress}%` }}
           >
             {/* Scrubber Playhead Handle */}
-            <span className="absolute -right-2 top-1/2 size-4 -translate-y-1/2 rounded-[var(--radius-sm)] border-2 border-border bg-primary shadow-[1px_1px_0px_var(--color-border)] transition-transform group-hover:scale-110" />
+            <span className="absolute -right-2 top-1/2 size-4.5 -translate-y-1/2 rounded-[var(--radius-sm)] border-2 border-border bg-primary shadow-[1px_1px_0px_var(--color-border)] transition-transform group-hover:scale-110 z-30" />
           </div>
+
+          {/* IN Marker Line & Handle */}
+          {duration > 0 && trimStart !== null ? (() => {
+            const inPct = Math.min(100, Math.max(0, (trimStart / duration) * 100));
+            return (
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-primary z-20 pointer-events-none"
+                style={{ left: `${inPct}%` }}
+              >
+                <span className="absolute -top-0.5 -left-2 rounded-xs border border-border bg-primary px-1 py-0 font-mono text-[8px] font-bold text-primary-foreground">
+                  [ IN
+                </span>
+              </div>
+            );
+          })() : null}
+
+          {/* OUT Marker Line & Handle */}
+          {duration > 0 && trimEnd !== null ? (() => {
+            const outPct = Math.min(100, Math.max(0, (trimEnd / duration) * 100));
+            return (
+              <div
+                className="absolute top-0 bottom-0 w-[2px] bg-destructive z-20 pointer-events-none"
+                style={{ left: `${outPct}%` }}
+              >
+                <span className="absolute -top-0.5 -right-2 rounded-xs border border-border bg-destructive px-1 py-0 font-mono text-[8px] font-bold text-white">
+                  OUT ]
+                </span>
+              </div>
+            );
+          })() : null}
 
           {/* Capture Timestamp Bookmark Pins */}
           {duration > 0
@@ -777,7 +923,7 @@ export function VideoPlayer() {
                   <button
                     key={cap.id}
                     type="button"
-                    title={`Captured @ ${formatTime(cap.timestampSec)} (Click to jump)`}
+                    title={`Captured @ ${formatTimePrecise(cap.timestampSec)} (Click to jump)`}
                     onClick={(e) => {
                       e.stopPropagation();
                       jumpTo(cap.timestampSec);
@@ -879,6 +1025,59 @@ export function VideoPlayer() {
               <ChevronsRight />
             </Button>
           </Hint>
+
+          {/* Quick In / Out / Preview Buttons directly on Transport */}
+          <div className="ml-1 flex items-center gap-1 border-l-2 border-border/50 pl-1">
+            <Hint label="Mark IN Point (I)">
+              <Button
+                variant={trimStart !== null ? "primary" : "outline"}
+                size="sm"
+                disabled={disabled}
+                onClick={() => {
+                  setTrimStart(current);
+                  toast.success(`Marked IN @ ${formatTimePrecise(current)}`);
+                }}
+                className="h-7 px-1.5 font-mono text-[10px] font-bold"
+              >
+                [ IN
+              </Button>
+            </Hint>
+
+            <Hint label="Mark OUT Point (O)">
+              <Button
+                variant={trimEnd !== null ? "destructive" : "outline"}
+                size="sm"
+                disabled={disabled}
+                onClick={() => {
+                  if (trimStart !== null && current <= trimStart) {
+                    toast.error("OUT point must be after IN point");
+                    return;
+                  }
+                  setTrimEnd(current);
+                  toast.success(`Marked OUT @ ${formatTimePrecise(current)}`);
+                }}
+                className="h-7 px-1.5 font-mono text-[10px] font-bold"
+              >
+                OUT ]
+              </Button>
+            </Hint>
+
+            <Hint label="Live Preview Playback (P)">
+              <Button
+                variant={previewTrimMode ? "signal" : "outline"}
+                size="sm"
+                disabled={disabled || (trimStart === null && trimEnd === null)}
+                onClick={() => {
+                  setPreviewTrimMode(!previewTrimMode);
+                  toast(previewTrimMode ? "Preview Mode: OFF" : "Preview Mode: ON (Live Skipping)");
+                }}
+                className="h-7 px-2 text-[10px] font-bold"
+              >
+                <Eye className="size-3 mr-1" />
+                Preview
+              </Button>
+            </Hint>
+          </div>
         </div>
 
         {/* Digital LCD Timecode Box */}
@@ -921,6 +1120,16 @@ export function VideoPlayer() {
             </Button>
           </Hint>
         </div>
+      </div>
+
+      {/* Hardware WebCodecs Video Cut & Trim Deck Component */}
+      <div className="mt-3.5">
+        <TrimControls
+          currentSec={current}
+          durationSec={duration}
+          onSeek={jumpTo}
+          disabled={disabled}
+        />
       </div>
 
       {/* Deck Transform Toolbar (Zoom, Pan, Rotate, Flip, Crop) */}

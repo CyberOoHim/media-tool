@@ -1,6 +1,6 @@
 {
   "name": "Video Tool",
-  "description": "Local video player, frame capture, and image optimizer with browser-based media tools.",
+  "description": "Local video player, frame-accurate cut & trim with hardware WebCodecs export, frame capture, and image optimizer.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,10 +1,12 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { Download, Film, Sparkles, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Download, Film, HelpCircle, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatTime } from "@/features/media/format";
+import { Hint } from "@/components/ui/tooltip";
+import { formatTimePrecise } from "@/features/media/format";
 import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
 import { cn } from "@/lib/utils";
@@ -12,6 +14,11 @@ import { cn } from "@/lib/utils";
 export function CaptureStrip() {
   const captures = useMediaStore((s) => s.captures);
   const source = useMediaStore((s) => s.source);
+  const trimStart = useMediaStore((s) => s.trimStart);
+  const trimEnd = useMediaStore((s) => s.trimEnd);
+  const includeScreenshotFrame = useMediaStore((s) => s.includeScreenshotFrame);
+  const setIncludeScreenshotFrame = useMediaStore((s) => s.setIncludeScreenshotFrame);
+  const applyScreenshotToTrim = useMediaStore((s) => s.applyScreenshotToTrim);
   const openCapture = useMediaStore((s) => s.openCapture);
   const removeCapture = useMediaStore((s) => s.removeCapture);
   const clearCaptures = useMediaStore((s) => s.clearCaptures);
@@ -21,12 +28,31 @@ export function CaptureStrip() {
 
   return (
     <Panel
-      title="35mm Filmstrip // Session Gallery"
+      title="35mm Filmstrip // Session Gallery & Trim Markers"
       status={`${captures.length} STILLS`}
       statusVariant={captures.length > 0 ? "signal" : "default"}
       action={
         captures.length > 0 ? (
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Global include screenshot checkbox quick-toggle in strip header */}
+            <div className="flex items-center space-x-1.5 rounded-[var(--radius-sm)] border border-border bg-card px-2 py-1 font-mono text-[10px]">
+              <Checkbox
+                id="strip-include-frame-chk"
+                checked={includeScreenshotFrame}
+                onCheckedChange={(c) => setIncludeScreenshotFrame(Boolean(c))}
+                className="size-3"
+              />
+              <label
+                htmlFor="strip-include-frame-chk"
+                className="cursor-pointer font-bold text-foreground select-none"
+              >
+                Include frame in period
+              </label>
+              <Hint label="Default: Not included. When setting IN/OUT from a screenshot, determines whether the screenshot's own frame time is included in the period.">
+                <HelpCircle className="size-3 text-muted-foreground" />
+              </Hint>
+            </div>
+
             <Button
               type="button"
               variant="outline"
@@ -67,7 +93,7 @@ export function CaptureStrip() {
               Filmstrip is Empty
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Press <kbd className="rounded border border-border bg-card px-1 py-0.5 font-mono text-[10px] font-bold text-foreground">S</kbd> while playing a video to snap frames into this strip.
+              Press <kbd className="rounded border border-border bg-card px-1 py-0.5 font-mono text-[10px] font-bold text-foreground">S</kbd> while playing a video to snap frames. Stills can be used to set precise Cut/Trim IN & OUT points.
             </p>
           </div>
         </div>
@@ -82,14 +108,20 @@ export function CaptureStrip() {
                 const active = source?.fromCaptureId === item.id;
                 const frameNumber = String(captures.length - index).padStart(2, "0");
 
+                // Check if this capture timestamp matches trim IN or OUT
+                const isTrimStart =
+                  trimStart !== null && Math.abs(trimStart - item.timestampSec) < 0.05;
+                const isTrimEnd =
+                  trimEnd !== null && Math.abs(trimEnd - item.timestampSec) < 0.05;
+
                 return (
-                  <li key={item.id} className="w-40 shrink-0">
+                  <li key={item.id} className="w-44 shrink-0">
                     {/* Frame Index Tag */}
                     <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold text-[#fceee2]">
                       <span className="flex items-center gap-1 text-signal">
                         <Sparkles className="size-2.5" /> #{frameNumber}
                       </span>
-                      <span className="tabular opacity-80">{formatTime(item.timestampSec)}</span>
+                      <span className="tabular opacity-80">{formatTimePrecise(item.timestampSec)}</span>
                     </div>
 
                     {/* Thumbnail Card */}
@@ -100,10 +132,12 @@ export function CaptureStrip() {
                         if (pathname === "/player") void navigate({ to: "/bench" });
                       }}
                       className={cn(
-                        "group block w-full overflow-hidden rounded-[var(--radius-sm)] border-2 bg-card text-left transition-all",
+                        "group block w-full overflow-hidden rounded-[var(--radius-sm)] border-2 bg-card text-left transition-all relative",
                         active
-                          ? "border-signal shadow-[3px_3px_0px_var(--color-signal)] scale-[1.02]"
-                          : "border-border shadow-[2px_2px_0px_var(--color-border)] hover:border-foreground/80 hover:translate-y-[-1px]",
+                          ? "border-signal shadow-[3px_3px_0px_var(--color-signal)] scale-[1.01]"
+                          : isTrimStart || isTrimEnd
+                            ? "border-primary shadow-[2px_2px_0px_var(--color-primary)]"
+                            : "border-border shadow-[2px_2px_0px_var(--color-border)] hover:border-foreground/80 hover:translate-y-[-1px]",
                       )}
                     >
                       <div className="checkerboard relative h-24 w-full overflow-hidden">
@@ -117,6 +151,16 @@ export function CaptureStrip() {
                             ACTIVE
                           </span>
                         ) : null}
+
+                        {isTrimStart ? (
+                          <span className="absolute top-1 left-1 rounded-xs border border-border bg-primary px-1 py-0.2 font-mono text-[8px] font-bold text-primary-foreground">
+                            [ IN POINT
+                          </span>
+                        ) : isTrimEnd ? (
+                          <span className="absolute top-1 right-1 rounded-xs border border-border bg-destructive px-1 py-0.2 font-mono text-[8px] font-bold text-white">
+                            OUT POINT ]
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="p-2 font-mono text-[10px]">
@@ -127,27 +171,71 @@ export function CaptureStrip() {
                       </div>
                     </button>
 
+                    {/* Cut / Trim Marker Buttons for Screenshot */}
+                    <div className="mt-1.5 grid grid-cols-2 gap-1 font-mono text-[9px]">
+                      <Button
+                        type="button"
+                        variant={isTrimStart ? "primary" : "secondary"}
+                        size="sm"
+                        className="h-6 px-1 text-[9px] font-bold"
+                        onClick={() => {
+                          const res = applyScreenshotToTrim(item.id, "start");
+                          const inclText = includeScreenshotFrame
+                            ? "included"
+                            : "excluded (starts next frame)";
+                          toast.success(
+                            `Marked IN (Start) @ ${formatTimePrecise(res.start ?? item.timestampSec)} [Screenshot ${inclText}]`,
+                          );
+                        }}
+                        title={`Set as Start point (Screenshot frame ${includeScreenshotFrame ? "included" : "not included"})`}
+                      >
+                        [ Set IN
+                      </Button>
+
+                      <Button
+                        type="button"
+                        variant={isTrimEnd ? "destructive" : "secondary"}
+                        size="sm"
+                        className={cn(
+                          "h-6 px-1 text-[9px] font-bold",
+                          isTrimEnd && "text-white",
+                        )}
+                        onClick={() => {
+                          const res = applyScreenshotToTrim(item.id, "end");
+                          const inclText = includeScreenshotFrame
+                            ? "included"
+                            : "excluded (ends prior to frame)";
+                          toast.success(
+                            `Marked OUT (End) @ ${formatTimePrecise(res.end ?? item.timestampSec)} [Screenshot ${inclText}]`,
+                          );
+                        }}
+                        title={`Set as End point (Screenshot frame ${includeScreenshotFrame ? "included" : "not included"})`}
+                      >
+                        Set OUT ]
+                      </Button>
+                    </div>
+
                     {/* Action Bar */}
-                    <div className="mt-1.5 flex gap-1.5">
+                    <div className="mt-1 flex gap-1.5">
                       <SaveLink
                         blob={item.blob}
                         filename={item.fileName}
                         variant="outline"
                         size="sm"
-                        className="h-6 flex-1 px-1 text-[10px]"
+                        className="h-5 flex-1 px-1 text-[9px]"
                       >
-                        <Download className="size-3" />
-                        Save
+                        <Download className="size-2.5 mr-0.5" />
+                        Save Still
                       </SaveLink>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-6 px-1.5 text-destructive hover:bg-destructive hover:text-white"
+                        className="h-5 px-1.5 text-destructive hover:bg-destructive hover:text-white"
                         onClick={() => removeCapture(item.id)}
                         title="Delete capture"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-2.5" />
                       </Button>
                     </div>
                   </li>
