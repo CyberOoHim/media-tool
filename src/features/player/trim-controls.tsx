@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DeckExpander } from "@/components/layout/deck-expander";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -200,59 +201,57 @@ export function TrimControls({
   };
 
   return (
-    <div className="space-y-3.5 rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 shadow-[2px_2px_0px_var(--color-border)]">
-      {/* Header & Mode Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-border/50 pb-2.5">
-        <div className="flex items-center gap-2">
-          <div className="grid size-7 place-items-center rounded-[var(--radius-sm)] border-2 border-border bg-signal text-foreground shadow-[1px_1px_0px_var(--color-border)]">
-            <Scissors className="size-3.5" />
+    <div className="space-y-3.5">
+      {/* DECK 1: VIDEO CUT & TRIM MARKERS */}
+      <DeckExpander
+        id="deck-video-cut-trim"
+        title="Deck-1 // Video Cut & Trim Deck"
+        subtitle="Frame-accurate In/Out markers, active duration & cut segment selector"
+        icon={<Scissors className="size-3.5" />}
+        badge={
+          hasRange ? (
+            <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
+              ACTIVE RANGE
+            </Badge>
+          ) : null
+        }
+        action={
+          <div className="flex items-center rounded-[var(--radius-sm)] border border-border bg-secondary p-0.5 shadow-[1px_1px_0px_var(--color-border)]">
+            <Button
+              type="button"
+              size="sm"
+              variant={trimMode === "trim" ? "primary" : "ghost"}
+              disabled={disabled}
+              onClick={() => setTrimMode("trim")}
+              className={cn(
+                "h-5.5 px-2 text-[9px] font-bold uppercase tracking-wider",
+                trimMode === "trim" && "shadow-[1px_1px_0px_var(--color-border)]",
+              )}
+            >
+              <Film className="size-2.5 mr-1" />
+              Trim
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant={trimMode === "cut" ? "destructive" : "ghost"}
+              disabled={disabled}
+              onClick={() => setTrimMode("cut")}
+              className={cn(
+                "h-5.5 px-2 text-[9px] font-bold uppercase tracking-wider",
+                trimMode === "cut" && "shadow-[1px_1px_0px_var(--color-border)] text-white",
+              )}
+            >
+              <Scissors className="size-2.5 mr-1" />
+              Cut
+            </Button>
           </div>
-          <div>
-            <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-              Video Cut & Trim Deck
-            </h3>
-            <p className="font-mono text-[10px] text-muted-foreground">
-              Frame-accurate cutting · Hardware WebCodecs export
-            </p>
-          </div>
-        </div>
-
-        {/* Operation Mode Tabs: Trim vs Cut */}
-        <div className="flex items-center rounded-[var(--radius-sm)] border-2 border-border bg-secondary p-0.5 shadow-[1px_1px_0px_var(--color-border)]">
-          <Button
-            type="button"
-            size="sm"
-            variant={trimMode === "trim" ? "primary" : "ghost"}
-            disabled={disabled}
-            onClick={() => setTrimMode("trim")}
-            className={cn(
-              "h-6.5 px-2.5 text-[10px] font-bold uppercase tracking-wider",
-              trimMode === "trim" && "shadow-[1px_1px_0px_var(--color-border)]",
-            )}
-          >
-            <Film className="size-3 mr-1" />
-            Trim (Retain)
-          </Button>
-
-          <Button
-            type="button"
-            size="sm"
-            variant={trimMode === "cut" ? "destructive" : "ghost"}
-            disabled={disabled}
-            onClick={() => setTrimMode("cut")}
-            className={cn(
-              "h-6.5 px-2.5 text-[10px] font-bold uppercase tracking-wider",
-              trimMode === "cut" && "shadow-[1px_1px_0px_var(--color-border)] text-white",
-            )}
-          >
-            <Scissors className="size-3 mr-1" />
-            Cut (Remove)
-          </Button>
-        </div>
-      </div>
-
-      {/* Range Definition & Transport Points */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        }
+        disabled={disabled}
+      >
+        {/* Range Definition & Transport Points */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {/* IN Point (Start) Box */}
         <div
           className={cn(
@@ -509,27 +508,35 @@ export function TrimControls({
           </span>
         </div>
       </div>
+      </DeckExpander>
 
-      {/* Hardware WebCodecs Export Deck */}
-      <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 p-3 shadow-[1px_1px_0px_var(--color-border)] space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5">
-            <Cpu className="size-4 text-signal" />
-            <span className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-              Hardware WebCodecs Export
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="rounded-xs bg-success/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-success border border-success/30 uppercase">
-              100% Frame-Accurate
-            </span>
-            <span className="rounded-xs bg-signal/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-signal border border-signal/30 uppercase">
-              Hardware Accelerated
-            </span>
-          </div>
-        </div>
-
-        {/* Quality Preset & Codec Controls */}
+      {/* DECK 2: HARDWARE WEBCODECS EXPORT DECK */}
+      <DeckExpander
+        id="deck-webcodecs-export"
+        title="Deck-1 // Hardware WebCodecs Export Deck"
+        subtitle="Frame-accurate WebCodecs encoder, bitrate profile & MP4 container export"
+        icon={<Cpu className="size-3.5 text-signal" />}
+        badge={
+          exportResult ? (
+            <Badge variant="signal" className="px-1.5 py-0 text-[8px] font-mono">
+              EXPORT READY
+            </Badge>
+          ) : isExporting ? (
+            <Badge variant="outline" className="px-1.5 py-0 text-[8px] animate-pulse">
+              ENCODING...
+            </Badge>
+          ) : (
+            <div className="flex items-center gap-1">
+              <span className="rounded-xs bg-success/20 px-1 py-0.2 font-mono text-[8px] font-bold text-success border border-success/30 uppercase">
+                100% Frame-Accurate
+              </span>
+            </div>
+          )
+        }
+        disabled={disabled}
+      >
+        <div className="space-y-2.5">
+          {/* Quality Preset & Codec Controls */}
         <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
           {/* Quality Profile */}
           <div className="space-y-1">
@@ -730,6 +737,7 @@ export function TrimControls({
           </div>
         ) : null}
       </div>
+    </DeckExpander>
     </div>
   );
 }

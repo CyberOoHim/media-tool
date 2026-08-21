@@ -78,6 +78,8 @@ export type CaptureItem = {
   createdAt: number;
 };
 
+export type CaptureSortOrder = "time-asc" | "time-desc" | "created-desc" | "created-asc";
+
 export type BenchOutput = {
   objectUrl: string;
   blob: Blob;

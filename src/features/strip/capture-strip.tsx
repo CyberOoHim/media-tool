@@ -1,18 +1,36 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useMemo } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Download, Film, HelpCircle, Sparkles, Trash2 } from "lucide-react";
+import {
+  Clock,
+  Download,
+  Film,
+  HelpCircle,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Hint } from "@/components/ui/tooltip";
 import { formatTimePrecise } from "@/features/media/format";
 import { SaveLink } from "@/features/media/save-link";
-import { useMediaStore } from "@/features/media/store";
+import { sortCaptures, useMediaStore } from "@/features/media/store";
+import type { CaptureSortOrder } from "@/features/media/types";
 import { cn } from "@/lib/utils";
 
 export function CaptureStrip() {
   const captures = useMediaStore((s) => s.captures);
+  const captureSortOrder = useMediaStore((s) => s.captureSortOrder);
+  const setCaptureSortOrder = useMediaStore((s) => s.setCaptureSortOrder);
   const source = useMediaStore((s) => s.source);
   const trimStart = useMediaStore((s) => s.trimStart);
   const trimEnd = useMediaStore((s) => s.trimEnd);
@@ -26,6 +44,12 @@ export function CaptureStrip() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  // Always derive sorted captures according to active sequence (defaults to chronological time sequence)
+  const sortedCaptures = useMemo(
+    () => sortCaptures(captures, captureSortOrder),
+    [captures, captureSortOrder],
+  );
+
   return (
     <Panel
       title="35mm Filmstrip // Session Gallery & Trim Markers"
@@ -34,6 +58,50 @@ export function CaptureStrip() {
       action={
         captures.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
+            {/* Time Sequence Sort Order Control */}
+            <div className="flex items-center space-x-1.5 rounded-[var(--radius-sm)] border border-border bg-card px-2 py-1 font-mono text-[10px]">
+              <Clock className="size-3 text-signal" />
+              <label
+                htmlFor="strip-sort-select"
+                className="cursor-pointer font-bold text-foreground select-none"
+              >
+                Sort:
+              </label>
+              <div className="w-[180px]">
+                <Select
+                  value={captureSortOrder}
+                  onValueChange={(val) => {
+                    setCaptureSortOrder(val as CaptureSortOrder);
+                    if (val === "time-asc") {
+                      toast("Sorted by Time Sequence (Timeline 00:00 ➔ End)");
+                    } else if (val === "time-desc") {
+                      toast("Sorted by Time Sequence (Timeline End ➔ 00:00)");
+                    } else if (val === "created-desc") {
+                      toast("Sorted by Capture Order (Newest First)");
+                    } else {
+                      toast("Sorted by Capture Order (Oldest First)");
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    id="strip-sort-select"
+                    className="h-6 border-0 bg-transparent px-1.5 py-0 text-[10px] font-bold shadow-none hover:bg-secondary"
+                  >
+                    <SelectValue placeholder="Sort order" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="time-asc">Time Sequence (00:00 ➔ End)</SelectItem>
+                    <SelectItem value="time-desc">Time Sequence (End ➔ 00:00)</SelectItem>
+                    <SelectItem value="created-desc">Captured (Newest First)</SelectItem>
+                    <SelectItem value="created-asc">Captured (Oldest First)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <Hint label="Chronological time sequence arranges stills in order of their video timestamp.">
+                <HelpCircle className="size-3 text-muted-foreground" />
+              </Hint>
+            </div>
+
             {/* Global include screenshot checkbox quick-toggle in strip header */}
             <div className="flex items-center space-x-1.5 rounded-[var(--radius-sm)] border border-border bg-card px-2 py-1 font-mono text-[10px]">
               <Checkbox
@@ -59,7 +127,7 @@ export function CaptureStrip() {
               size="sm"
               onClick={() => {
                 downloadAllCaptures();
-                toast.success(`Exporting ${captures.length} stills...`);
+                toast.success(`Exporting ${captures.length} stills in time sequence...`);
               }}
               className="h-7 text-[10px]"
             >
@@ -93,7 +161,7 @@ export function CaptureStrip() {
               Filmstrip is Empty
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Press <kbd className="rounded border border-border bg-card px-1 py-0.5 font-mono text-[10px] font-bold text-foreground">S</kbd> while playing a video to snap frames. Stills can be used to set precise Cut/Trim IN & OUT points.
+              Press <kbd className="rounded border border-border bg-card px-1 py-0.5 font-mono text-[10px] font-bold text-foreground">S</kbd> while playing a video to snap frames. Stills are sorted in chronological time sequence and can be used to set precise Cut/Trim IN & OUT points.
             </p>
           </div>
         </div>
@@ -104,9 +172,9 @@ export function CaptureStrip() {
 
           <ScrollArea className="w-full">
             <ul className="flex gap-3 pb-2 pt-1">
-              {captures.map((item, index) => {
+              {sortedCaptures.map((item, index) => {
                 const active = source?.fromCaptureId === item.id;
-                const frameNumber = String(captures.length - index).padStart(2, "0");
+                const frameNumber = String(index + 1).padStart(2, "0");
 
                 // Check if this capture timestamp matches trim IN or OUT
                 const isTrimStart =
@@ -116,12 +184,14 @@ export function CaptureStrip() {
 
                 return (
                   <li key={item.id} className="w-44 shrink-0">
-                    {/* Frame Index Tag */}
+                    {/* Frame Index & Time Tag */}
                     <div className="mb-1 flex items-center justify-between font-mono text-[10px] font-bold text-[#fceee2]">
                       <span className="flex items-center gap-1 text-signal">
                         <Sparkles className="size-2.5" /> #{frameNumber}
                       </span>
-                      <span className="tabular opacity-80">{formatTimePrecise(item.timestampSec)}</span>
+                      <span className="tabular opacity-90 text-signal font-semibold">
+                        {formatTimePrecise(item.timestampSec)}
+                      </span>
                     </div>
 
                     {/* Thumbnail Card */}

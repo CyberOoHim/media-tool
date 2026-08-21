@@ -11,9 +11,31 @@ import {
   type BenchOutput,
   type BenchSettings,
   type CaptureItem,
+  type CaptureSortOrder,
   type SourceImage,
   type VideoSession,
 } from "./types";
+
+export function sortCaptures(
+  items: CaptureItem[],
+  order: CaptureSortOrder = "time-asc",
+): CaptureItem[] {
+  return [...items].sort((a, b) => {
+    if (order === "time-asc") {
+      return a.timestampSec - b.timestampSec || a.createdAt - b.createdAt;
+    }
+    if (order === "time-desc") {
+      return b.timestampSec - a.timestampSec || b.createdAt - a.createdAt;
+    }
+    if (order === "created-desc") {
+      return b.createdAt - a.createdAt;
+    }
+    if (order === "created-asc") {
+      return a.createdAt - b.createdAt;
+    }
+    return 0;
+  });
+}
 
 export const DEFAULT_EXPORT_CONFIG: ExportConfig = {
   quality: "lossless",
@@ -32,6 +54,7 @@ type MediaState = {
   benchTransform: TransformState;
   processing: boolean;
   error: string | null;
+  captureSortOrder: CaptureSortOrder;
 
   // Video Cut & Trim State
   trimMode: TrimMode;
@@ -58,6 +81,7 @@ type MediaState = {
   downloadOutput: () => void;
   downloadCapture: (id: string) => void;
   downloadAllCaptures: () => void;
+  setCaptureSortOrder: (order: CaptureSortOrder) => void;
   setSettings: (partial: Partial<BenchSettings>, autoRun?: boolean) => void;
   setBenchTransform: (partial: Partial<TransformState>, autoRun?: boolean) => void;
   resetBenchTransform: () => void;
@@ -96,6 +120,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   benchTransform: { ...DEFAULT_TRANSFORM },
   processing: false,
   error: null,
+  captureSortOrder: "time-asc",
 
   // Cut & Trim Initial State
   trimMode: "trim",
@@ -314,14 +339,17 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   },
 
   downloadAllCaptures: () => {
-    const { captures } = get();
-    if (!captures.length) return;
-    captures.forEach((item, index) => {
+    const { captures, captureSortOrder } = get();
+    const sorted = sortCaptures(captures, captureSortOrder);
+    if (!sorted.length) return;
+    sorted.forEach((item, index) => {
       setTimeout(() => {
         void downloadBlob(item.blob, item.fileName);
       }, index * 200);
     });
   },
+
+  setCaptureSortOrder: (order) => set({ captureSortOrder: order }),
 
   setSettings: (partial, autoRun = true) => {
     set((state) => ({ settings: { ...state.settings, ...partial } }));
@@ -375,6 +403,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       benchTransform: { ...DEFAULT_TRANSFORM },
       processing: false,
       error: null,
+      captureSortOrder: "time-asc",
     });
   },
 

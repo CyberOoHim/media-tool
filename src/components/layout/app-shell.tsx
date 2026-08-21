@@ -1,6 +1,7 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { Film, Image as ImageIcon, LayoutGrid, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
+import { ExpanderStorageControls } from "@/components/layout/deck-expander";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-dialog";
 import { ThemeSwitch } from "@/components/layout/theme-switch";
 import { UiZoomControl } from "@/components/layout/ui-zoom-control";
@@ -96,17 +97,17 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Main Container */}
       <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-5">
-        {/* Workflow Quick-Tip Banner */}
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 px-3.5 py-2 font-mono text-xs text-muted-foreground shadow-[2px_2px_0px_var(--color-border)]">
+        {/* Workflow Quick-Tip Banner & Global Deck Storage Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 px-3 py-2 font-mono text-xs text-muted-foreground shadow-[2px_2px_0px_var(--color-border)]">
           <div className="flex items-center gap-2">
             <Sparkles className="size-4 text-signal shrink-0" />
             <span>
-              <strong className="text-foreground">Workflow:</strong> Drop local video ➜ Press <kbd className="rounded-xs border border-border bg-card px-1.5 py-0.5 text-[10px] font-bold text-foreground">S</kbd> to snap frame ➜ Pick crop & size budget ➜ Download / Copy.
+              <strong className="text-foreground">Workflow:</strong> Drop video ➜ Press <kbd className="rounded-xs border border-border bg-card px-1.5 py-0.5 text-[10px] font-bold text-foreground">S</kbd> to snap ➜ Pick crop & budget ➜ Download / Copy.
             </span>
           </div>
-          <span className="hidden text-[11px] text-foreground font-semibold lg:inline">
-            Zero cloud upload · Private & instant
-          </span>
+          <div className="flex items-center gap-2">
+            <ExpanderStorageControls />
+          </div>
         </div>
 
         {children}

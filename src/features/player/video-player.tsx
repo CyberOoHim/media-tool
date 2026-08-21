@@ -13,12 +13,14 @@ import {
   Scissors,
   SkipBack,
   SkipForward,
+  Sliders,
   Upload,
   Volume2,
   VolumeX,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DeckExpander } from "@/components/layout/deck-expander";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
 import { TransformControls } from "@/components/media/transform-controls";
@@ -1122,7 +1124,7 @@ export function VideoPlayer() {
         </div>
       </div>
 
-      {/* Hardware WebCodecs Video Cut & Trim Deck Component */}
+      {/* Hardware WebCodecs Video Cut & Trim Deck Component (Wrapped in DeckExpander) */}
       <div className="mt-3.5">
         <TrimControls
           currentSec={current}
@@ -1133,147 +1135,185 @@ export function VideoPlayer() {
       </div>
 
       {/* Deck Transform Toolbar (Zoom, Pan, Rotate, Flip, Crop) */}
-      <div className="mt-3">
-        <TransformControls
-          transform={videoTransform}
-          onChange={(partial) => setVideoTransform((prev) => ({ ...prev, ...partial }))}
-          onReset={() => {
-            setVideoTransform(DEFAULT_TRANSFORM);
-            toast("Deck transforms reset");
-          }}
-          title="Deck-1 // Transform & Crop Framing"
+      <div className="mt-3.5">
+        <DeckExpander
+          id="deck-video-transform"
+          title="Deck-1 // Video Framing & Transform Deck"
+          subtitle="Zoom, Pan, Rotate, Mirror Flip & Aspect Ratio Calibration"
+          icon={<Sliders className="size-3.5" />}
+          badge={
+            hasActiveTransform(videoTransform) ? (
+              <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
+                ACTIVE TRANSFORM
+              </Badge>
+            ) : null
+          }
           disabled={disabled}
-          bakeToggle={{
-            enabled: bakeTransformOnCapture,
-            onToggle: (val) => setBakeTransformOnCapture(val),
-          }}
-        />
+        >
+          <TransformControls
+            transform={videoTransform}
+            onChange={(partial) => setVideoTransform((prev) => ({ ...prev, ...partial }))}
+            onReset={() => {
+              setVideoTransform(DEFAULT_TRANSFORM);
+              toast("Deck transforms reset");
+            }}
+            title="Transform & Crop Framing"
+            disabled={disabled}
+            bakeToggle={{
+              enabled: bakeTransformOnCapture,
+              onToggle: (val) => setBakeTransformOnCapture(val),
+            }}
+          />
+        </DeckExpander>
       </div>
 
-      {/* Capture Action Bar (Snap, Burst, Copy) */}
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <Button
-          type="button"
-          variant="success"
-          size="default"
+      {/* Capture Action Bar & Transport Deck (Snap, Burst, Speed, Jump TC) */}
+      <div className="mt-3.5">
+        <DeckExpander
+          id="deck-video-transport"
+          title="Deck-1 // Capture Actions & Timecode Transport"
+          subtitle="High-speed frame capture, variable playback rates & direct jump"
+          icon={<Camera className="size-3.5" />}
           disabled={disabled}
-          onClick={() => void capture()}
-          className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
         >
-          <Camera className="size-4" />
-          Snap Frame (S)
-        </Button>
-
-        <Button
-          type="button"
-          variant="accent"
-          size="default"
-          disabled={disabled}
-          onClick={() => void burstCapture()}
-          className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
-          title="Capture 3 frames in quick succession"
-        >
-          <Layers className="size-4" />
-          Burst 3× (Shift+S)
-        </Button>
-
-        <Button
-          type="button"
-          variant="outline"
-          size="default"
-          disabled={disabled}
-          onClick={() => void copyFrame()}
-          className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
-        >
-          <Copy className="size-4" />
-          Copy Still (C)
-        </Button>
-      </div>
-
-      {/* Speed Selector & Direct Jump Row */}
-      <div className="mt-3.5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t-2 border-border/40 pt-3">
-        {/* Speed Selector Chips */}
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            Deck Speed:
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {PLAYBACK_RATES.map((r) => (
+          <div className="space-y-3">
+            {/* Capture Action Bar (Snap, Burst, Copy) */}
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Button
-                key={r}
-                size="sm"
-                variant={rate === r ? "signal" : "outline"}
+                type="button"
+                variant="success"
+                size="default"
                 disabled={disabled}
-                onClick={() => applyRate(r)}
-                className="h-6 min-w-9 px-1.5 text-[10px] font-bold"
+                onClick={() => void capture()}
+                className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
               >
-                {r}×
+                <Camera className="size-4" />
+                Snap Frame (S)
               </Button>
-            ))}
-          </div>
-        </div>
 
-        {/* Jump To Direct Timecode */}
-        <div className="flex items-center gap-1.5">
-          <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            Jump TC:
-          </span>
-          <div className="flex items-center gap-1">
-            <TimeField
-              value={hours}
-              placeholder="00"
-              disabled={disabled}
-              max={99}
-              onChange={setHours}
-              onEnter={gotoTyped}
-            />
-            <span className="font-bold text-muted-foreground">:</span>
-            <TimeField
-              value={minutes}
-              placeholder="00"
-              disabled={disabled}
-              max={59}
-              onChange={setMinutes}
-              onEnter={gotoTyped}
-            />
-            <span className="font-bold text-muted-foreground">:</span>
-            <TimeField
-              value={seconds}
-              placeholder="00"
-              disabled={disabled}
-              max={59}
-              onChange={setSeconds}
-              onEnter={gotoTyped}
-            />
+              <Button
+                type="button"
+                variant="accent"
+                size="default"
+                disabled={disabled}
+                onClick={() => void burstCapture()}
+                className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+                title="Capture 3 frames in quick succession"
+              >
+                <Layers className="size-4" />
+                Burst 3× (Shift+S)
+              </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="default"
+                disabled={disabled}
+                onClick={() => void copyFrame()}
+                className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+              >
+                <Copy className="size-4" />
+                Copy Still (C)
+              </Button>
+            </div>
+
+            {/* Speed Selector & Direct Jump Row */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/50 pt-2.5">
+              {/* Speed Selector Chips */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Deck Speed:
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {PLAYBACK_RATES.map((r) => (
+                    <Button
+                      key={r}
+                      size="sm"
+                      variant={rate === r ? "signal" : "outline"}
+                      disabled={disabled}
+                      onClick={() => applyRate(r)}
+                      className="h-6 min-w-9 px-1.5 text-[10px] font-bold"
+                    >
+                      {r}×
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Jump To Direct Timecode */}
+              <div className="flex items-center gap-1.5">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  Jump TC:
+                </span>
+                <div className="flex items-center gap-1">
+                  <TimeField
+                    value={hours}
+                    placeholder="00"
+                    disabled={disabled}
+                    max={99}
+                    onChange={setHours}
+                    onEnter={gotoTyped}
+                  />
+                  <span className="font-bold text-muted-foreground">:</span>
+                  <TimeField
+                    value={minutes}
+                    placeholder="00"
+                    disabled={disabled}
+                    max={59}
+                    onChange={setMinutes}
+                    onEnter={gotoTyped}
+                  />
+                  <span className="font-bold text-muted-foreground">:</span>
+                  <TimeField
+                    value={seconds}
+                    placeholder="00"
+                    disabled={disabled}
+                    max={59}
+                    onChange={setSeconds}
+                    onEnter={gotoTyped}
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-[10px]"
+                  disabled={disabled}
+                  onClick={gotoTyped}
+                >
+                  Go
+                </Button>
+              </div>
+            </div>
+
+            {/* Video Technical Specs Ribbon */}
+            {videoSession ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-3">
+                  <span>
+                    <strong className="text-foreground">Size:</strong>{" "}
+                    {formatFileSize(videoSession.fileSize)}
+                  </span>
+                  {videoDims ? (
+                    <span>
+                      <strong className="text-foreground">Res:</strong> {videoDims.w} × {videoDims.h}
+                    </span>
+                  ) : null}
+                  {hasActiveTransform(videoTransform) ? (
+                    <span className="text-signal font-bold">
+                      ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot:{" "}
+                      {Math.round(videoTransform.rotation)}°
+                      {videoTransform.cropPreset !== "none"
+                        ? ` | Crop: ${videoTransform.cropPreset}`
+                        : ""}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="font-bold text-success uppercase">● Hardware Accelerated</span>
+              </div>
+            ) : null}
           </div>
-          <Button variant="outline" size="sm" className="h-7 px-2 text-[10px]" disabled={disabled} onClick={gotoTyped}>
-            Go
-          </Button>
-        </div>
+        </DeckExpander>
       </div>
-
-      {/* Video Technical Specs Ribbon */}
-      {videoSession ? (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
-          <div className="flex items-center gap-3">
-            <span>
-              <strong className="text-foreground">Size:</strong> {formatFileSize(videoSession.fileSize)}
-            </span>
-            {videoDims ? (
-              <span>
-                <strong className="text-foreground">Res:</strong> {videoDims.w} × {videoDims.h}
-              </span>
-            ) : null}
-            {hasActiveTransform(videoTransform) ? (
-              <span className="text-signal font-bold">
-                ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot: {Math.round(videoTransform.rotation)}°
-                {videoTransform.cropPreset !== "none" ? ` | Crop: ${videoTransform.cropPreset}` : ""}
-              </span>
-            ) : null}
-          </div>
-          <span className="font-bold text-success uppercase">● Hardware Accelerated</span>
-        </div>
-      ) : null}
     </Panel>
   );
 }
