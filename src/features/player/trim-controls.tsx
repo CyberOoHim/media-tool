@@ -5,8 +5,11 @@ import {
   Film,
   Flame,
   HelpCircle,
+  Link2,
+  Monitor,
   RotateCcw,
   Scissors,
+  Unlink2,
   Volume2,
   VolumeX,
   X,
@@ -18,6 +21,7 @@ import { DeckExpander } from "@/components/layout/deck-expander";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -35,8 +39,10 @@ import { useMediaStore } from "@/features/media/store";
 import { cn } from "@/lib/utils";
 import {
   EXPORT_QUALITY_PRESETS,
+  calculateExportResolution,
   type ExportProgress,
   type ExportQuality,
+  type ExportResolutionPreset,
   type ExportResult,
 } from "./trim-types";
 import { exportVideoWebCodecs, isWebCodecsSupported } from "./webcodecs-export";
@@ -46,6 +52,7 @@ interface TrimControlsProps {
   durationSec: number;
   onSeek: (time: number) => void;
   disabled?: boolean;
+  videoDims?: { w: number; h: number } | null;
 }
 
 export function TrimControls({
@@ -53,6 +60,7 @@ export function TrimControls({
   durationSec,
   onSeek,
   disabled = false,
+  videoDims,
 }: TrimControlsProps) {
   const video = useMediaStore((s) => s.video);
   const trimMode = useMediaStore((s) => s.trimMode);
@@ -76,6 +84,25 @@ export function TrimControls({
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const hasRange = trimStart !== null || trimEnd !== null;
+
+  // Source video dimensions
+  const sourceWidth = videoDims?.w || 1920;
+  const sourceHeight = videoDims?.h || 1080;
+  const sourceAspect = sourceWidth / sourceHeight;
+
+  // Real-time computed target export resolution
+  const targetResolution = calculateExportResolution(
+    sourceWidth,
+    sourceHeight,
+    exportConfig.resolution || "original",
+    exportConfig.customWidth,
+    exportConfig.customHeight,
+  );
+
+  const sourcePixelCount = sourceWidth * sourceHeight;
+  const targetPixelCount = targetResolution.width * targetResolution.height;
+  const pixelPercentChange =
+    sourcePixelCount > 0 ? Math.round(((targetPixelCount - sourcePixelCount) / sourcePixelCount) * 100) : 0;
 
   // Compute effective segments
   const effectiveStart = trimStart ?? 0;
@@ -189,7 +216,9 @@ export function TrimControls({
 
       setExportResult(result);
       setIsExporting(false);
-      toast.success(`Export complete! (${result.speedMultiplier}× hardware speed)`);
+      toast.success(
+        `Export complete! ${result.width}×${result.height} (${result.speedMultiplier}× hardware speed)`,
+      );
     } catch (err) {
       setIsExporting(false);
       if (err instanceof Error && err.message.includes("cancelled")) {
@@ -252,269 +281,269 @@ export function TrimControls({
       >
         {/* Range Definition & Transport Points */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {/* IN Point (Start) Box */}
-        <div
-          className={cn(
-            "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
-            trimStart !== null
-              ? "border-signal bg-signal/5 shadow-[2px_2px_0px_var(--color-signal)]"
-              : "border-border bg-secondary/30",
-          )}
-        >
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="flex items-center gap-1.5 font-bold text-foreground">
-              <span className="rounded-xs bg-primary px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground font-bold">
-                [ IN
-              </span>
-              Start Point
-            </span>
-            {trimStart !== null ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
-                onClick={() => setTrimStart(null)}
-              >
-                <X className="size-3 mr-1" /> Clear
-              </Button>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">00:00.000 (Start of Video)</span>
+          {/* IN Point (Start) Box */}
+          <div
+            className={cn(
+              "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
+              trimStart !== null
+                ? "border-signal bg-signal/5 shadow-[2px_2px_0px_var(--color-signal)]"
+                : "border-border bg-secondary/30",
             )}
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="font-mono text-base font-bold tracking-widest text-foreground">
-              {trimStart !== null ? formatTimePrecise(trimStart) : "00:00.000"}
-            </div>
-            <div className="flex items-center gap-1.5">
+          >
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="flex items-center gap-1.5 font-bold text-foreground">
+                <span className="rounded-xs bg-primary px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground font-bold">
+                  [ IN
+                </span>
+                Start Point
+              </span>
               {trimStart !== null ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  className="h-8 px-2.5 text-xs touch-manipulation active:scale-95"
-                  onClick={() => onSeek(trimStart)}
-                  title="Jump playhead to IN point"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
+                  onClick={() => setTrimStart(null)}
                 >
-                  Jump
+                  <X className="size-3 mr-1" /> Clear
                 </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                disabled={disabled}
-                onClick={handleMarkIn}
-                className="h-8 px-3 text-xs font-bold touch-manipulation active:scale-95"
-              >
-                Mark IN (Current)
-              </Button>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">00:00.000 (Start of Video)</span>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="font-mono text-base font-bold tracking-widest text-foreground">
+                {trimStart !== null ? formatTimePrecise(trimStart) : "00:00.000"}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {trimStart !== null ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2.5 text-xs touch-manipulation active:scale-95"
+                    onClick={() => onSeek(trimStart)}
+                    title="Jump playhead to IN point"
+                  >
+                    Jump
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={handleMarkIn}
+                  className="h-8 px-3 text-xs font-bold touch-manipulation active:scale-95"
+                >
+                  Mark IN (Current)
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* OUT Point (End) Box */}
-        <div
-          className={cn(
-            "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
-            trimEnd !== null
-              ? "border-destructive bg-destructive/5 shadow-[2px_2px_0px_var(--color-destructive)]"
-              : "border-border bg-secondary/30",
-          )}
-        >
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="flex items-center gap-1.5 font-bold text-foreground">
-              <span className="rounded-xs bg-destructive px-1.5 py-0.5 font-mono text-[10px] text-white font-bold">
-                OUT ]
-              </span>
-              End Point
-            </span>
-            {trimEnd !== null ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
-                onClick={() => setTrimEnd(null)}
-              >
-                <X className="size-3 mr-1" /> Clear
-              </Button>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">
-                {durationSec > 0 ? formatTimePrecise(durationSec) : "--:--"} (End of Video)
-              </span>
+          {/* OUT Point (End) Box */}
+          <div
+            className={cn(
+              "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
+              trimEnd !== null
+                ? "border-destructive bg-destructive/5 shadow-[2px_2px_0px_var(--color-destructive)]"
+                : "border-border bg-secondary/30",
             )}
-          </div>
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="font-mono text-base font-bold tracking-widest text-foreground">
-              {trimEnd !== null
-                ? formatTimePrecise(trimEnd)
-                : durationSec > 0
-                  ? formatTimePrecise(durationSec)
-                  : "--:--.---"}
-            </div>
-            <div className="flex items-center gap-1.5">
+          >
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="flex items-center gap-1.5 font-bold text-foreground">
+                <span className="rounded-xs bg-destructive px-1.5 py-0.5 font-mono text-[10px] text-white font-bold">
+                  OUT ]
+                </span>
+                End Point
+              </span>
               {trimEnd !== null ? (
                 <Button
                   type="button"
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  className="h-8 px-2.5 text-xs touch-manipulation active:scale-95"
-                  onClick={() => onSeek(trimEnd)}
-                  title="Jump playhead to OUT point"
+                  className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
+                  onClick={() => setTrimEnd(null)}
                 >
-                  Jump
+                  <X className="size-3 mr-1" /> Clear
                 </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                disabled={disabled}
-                onClick={handleMarkOut}
-                className="h-8 px-3 text-xs font-bold touch-manipulation active:scale-95"
-              >
-                Mark OUT (Current)
-              </Button>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">
+                  {durationSec > 0 ? formatTimePrecise(durationSec) : "--:--"} (End of Video)
+                </span>
+              )}
+            </div>
+
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <div className="font-mono text-base font-bold tracking-widest text-foreground">
+                {trimEnd !== null
+                  ? formatTimePrecise(trimEnd)
+                  : durationSec > 0
+                    ? formatTimePrecise(durationSec)
+                    : "--:--.---"}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {trimEnd !== null ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2.5 text-xs touch-manipulation active:scale-95"
+                    onClick={() => onSeek(trimEnd)}
+                    title="Jump playhead to OUT point"
+                  >
+                    Jump
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={handleMarkOut}
+                  className="h-8 px-3 text-xs font-bold touch-manipulation active:scale-95"
+                >
+                  Mark OUT (Current)
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      {/* Quick Period Presets & Inclusion Checkbox */}
-      <div className="flex flex-col gap-2.5 rounded-[var(--radius-sm)] border border-border bg-secondary/40 p-2.5 font-mono text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            Quick Period Shortcuts:
-          </span>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled}
-              onClick={handleStartToVideoEnd}
-              className="h-6 px-2 text-[10px]"
-              title="Set Start at current time and extend to the end of the video"
-            >
-              Start ➜ End of Video
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled}
-              onClick={handleVideoStartToEnd}
-              className="h-6 px-2 text-[10px]"
-              title="Set from start of the video to current time as End"
-            >
-              Video Start ➜ End
-            </Button>
-            {hasRange ? (
+        {/* Quick Period Presets & Inclusion Checkbox */}
+        <div className="flex flex-col gap-2.5 rounded-[var(--radius-sm)] border border-border bg-secondary/40 p-2.5 font-mono text-xs">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              Quick Period Shortcuts:
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                onClick={clearTrimRange}
-                className="h-6 px-2 text-[10px] text-destructive hover:bg-destructive hover:text-white"
+                disabled={disabled}
+                onClick={handleStartToVideoEnd}
+                className="h-6 px-2 text-[10px]"
+                title="Set Start at current time and extend to the end of the video"
               >
-                <RotateCcw className="size-2.5 mr-1" /> Reset Points
+                Start ➜ End of Video
               </Button>
-            ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled}
+                onClick={handleVideoStartToEnd}
+                className="h-6 px-2 text-[10px]"
+                title="Set from start of the video to current time as End"
+              >
+                Video Start ➜ End
+              </Button>
+              {hasRange ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearTrimRange}
+                  className="h-6 px-2 text-[10px] text-destructive hover:bg-destructive hover:text-white"
+                >
+                  <RotateCcw className="size-2.5 mr-1" /> Reset Points
+                </Button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Screenshot Frame Inclusion Checkbox */}
+          <div className="flex items-center justify-between border-t border-border/40 pt-2">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="include-screenshot-frame-chk"
+                checked={includeScreenshotFrame}
+                onCheckedChange={(checked) => setIncludeScreenshotFrame(Boolean(checked))}
+              />
+              <label
+                htmlFor="include-screenshot-frame-chk"
+                className="cursor-pointer text-[11px] font-semibold text-foreground select-none flex items-center gap-1.5"
+              >
+                <span>Include screenshot frame in selected period</span>
+                <Hint label="When unchecked (default), marking from a screenshot excludes the exact screenshot frame timestamp. When checked, the screenshot frame itself is included in the period.">
+                  <HelpCircle className="size-3 text-muted-foreground" />
+                </Hint>
+              </label>
+            </div>
+            <span className="font-mono text-[9px] font-bold text-muted-foreground uppercase">
+              Default: Not Included
+            </span>
           </div>
         </div>
 
-        {/* Screenshot Frame Inclusion Checkbox - Explicit User Requirement */}
-        <div className="flex items-center justify-between border-t border-border/40 pt-2">
-          <div className="flex items-center space-x-2">
-            <Checkbox
-              id="include-screenshot-frame-chk"
-              checked={includeScreenshotFrame}
-              onCheckedChange={(checked) => setIncludeScreenshotFrame(Boolean(checked))}
-            />
-            <label
-              htmlFor="include-screenshot-frame-chk"
-              className="cursor-pointer text-[11px] font-semibold text-foreground select-none flex items-center gap-1.5"
-            >
-              <span>Include screenshot frame in selected period</span>
-              <Hint label="When unchecked (default), marking from a screenshot excludes the exact screenshot frame timestamp. When checked, the screenshot frame itself is included in the period.">
-                <HelpCircle className="size-3 text-muted-foreground" />
-              </Hint>
-            </label>
-          </div>
-          <span className="font-mono text-[9px] font-bold text-muted-foreground uppercase">
-            Default: Not Included
-          </span>
-        </div>
-      </div>
-
-      {/* Real-Time Outcome Summary Ribbon */}
-      <div className="rounded-[var(--radius-sm)] border-2 border-border bg-theater p-2.5 font-mono text-xs text-[#fceee2] shadow-inner">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-1.5">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "size-2 rounded-full",
-                trimMode === "trim" ? "bg-signal animate-pulse" : "bg-destructive animate-pulse",
-              )}
-            />
-            <span className="font-bold uppercase tracking-wider text-signal">
-              {trimMode === "trim" ? "Trim Outcome (Retain)" : "Cut Outcome (Remove)"}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 text-[11px]">
-            <span>
-              Source: <strong className="text-white">{formatTime(durationSec, true)}</strong>
-            </span>
-            <span>➜</span>
-            <span>
-              Output:{" "}
-              <strong className="text-signal font-bold">
-                {formatTime(outputDurationSec, true)}
-              </strong>
-            </span>
-            {durationReductionPct > 0 ? (
-              <span className="rounded-xs bg-signal/20 px-1 py-0.2 font-bold text-signal">
-                -{durationReductionPct}%
+        {/* Real-Time Outcome Summary Ribbon */}
+        <div className="rounded-[var(--radius-sm)] border-2 border-border bg-theater p-2.5 font-mono text-xs text-[#fceee2] shadow-inner">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-1.5">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "size-2 rounded-full",
+                  trimMode === "trim" ? "bg-signal animate-pulse" : "bg-destructive animate-pulse",
+                )}
+              />
+              <span className="font-bold uppercase tracking-wider text-signal">
+                {trimMode === "trim" ? "Trim Outcome (Retain)" : "Cut Outcome (Remove)"}
               </span>
-            ) : null}
-          </div>
-        </div>
+            </div>
 
-        <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-          <div>
-            {trimMode === "trim" ? (
+            <div className="flex items-center gap-2 text-[11px]">
               <span>
-                Retaining:{" "}
-                <strong className="text-white">
-                  {formatTimePrecise(effectiveStart)} ➜ {formatTimePrecise(effectiveEnd)}
+                Source: <strong className="text-white">{formatTime(durationSec, true)}</strong>
+              </span>
+              <span>➜</span>
+              <span>
+                Output:{" "}
+                <strong className="text-signal font-bold">
+                  {formatTime(outputDurationSec, true)}
                 </strong>
               </span>
-            ) : (
-              <span>
-                Removing:{" "}
-                <strong className="text-destructive">
-                  {formatTimePrecise(effectiveStart)} ➜ {formatTimePrecise(effectiveEnd)}
-                </strong>{" "}
-                (keeping before & after)
-              </span>
-            )}
+              {durationReductionPct > 0 ? (
+                <span className="rounded-xs bg-signal/20 px-1 py-0.2 font-bold text-signal">
+                  -{durationReductionPct}%
+                </span>
+              ) : null}
+            </div>
           </div>
-          <span className="text-[10px] text-[#fceee2]/70 font-semibold">
-            {retainedSegments.length} Segment{retainedSegments.length > 1 ? "s" : ""} to encode
-          </span>
+
+          <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+            <div>
+              {trimMode === "trim" ? (
+                <span>
+                  Retaining:{" "}
+                  <strong className="text-white">
+                    {formatTimePrecise(effectiveStart)} ➜ {formatTimePrecise(effectiveEnd)}
+                  </strong>
+                </span>
+              ) : (
+                <span>
+                  Removing:{" "}
+                  <strong className="text-destructive">
+                    {formatTimePrecise(effectiveStart)} ➜ {formatTimePrecise(effectiveEnd)}
+                  </strong>{" "}
+                  (keeping before & after)
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-[#fceee2]/70 font-semibold">
+              {retainedSegments.length} Segment{retainedSegments.length > 1 ? "s" : ""} to encode
+            </span>
+          </div>
         </div>
-      </div>
       </DeckExpander>
 
       {/* DECK 2: HARDWARE WEBCODECS EXPORT DECK */}
       <DeckExpander
         id="deck-webcodecs-export"
         title="Deck-1 // Hardware WebCodecs Export Deck"
-        subtitle="Frame-accurate WebCodecs encoder, bitrate profile & MP4 container export"
+        subtitle="Resolution selector, hardware WebCodecs encoder, bitrate profile & container export"
         icon={<Cpu className="size-3.5 text-signal" />}
         badge={
           exportResult ? (
@@ -528,7 +557,7 @@ export function TrimControls({
           ) : (
             <div className="flex items-center gap-1">
               <span className="rounded-xs bg-success/20 px-1 py-0.2 font-mono text-[8px] font-bold text-success border border-success/30 uppercase">
-                100% Frame-Accurate
+                {targetResolution.width} × {targetResolution.height}
               </span>
             </div>
           )
@@ -536,208 +565,424 @@ export function TrimControls({
         disabled={disabled}
       >
         <div className="space-y-2.5">
-          {/* Quality Preset & Codec Controls */}
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-          {/* Quality Profile */}
-          <div className="space-y-1">
-            <Label className="text-[10px]">Quality & Bitrate</Label>
-            <Select
-              value={exportConfig.quality}
-              onValueChange={(v: ExportQuality) => {
-                const preset = EXPORT_QUALITY_PRESETS[v];
-                setExportConfig({
-                  quality: v,
-                  bitrateMbps: preset.bitrateMbps,
-                });
-              }}
-              disabled={disabled || isExporting}
-            >
-              <SelectTrigger className="h-7 text-xs font-mono">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(Object.keys(EXPORT_QUALITY_PRESETS) as ExportQuality[]).map((key) => (
-                  <SelectItem key={key} value={key} className="text-xs font-mono">
-                    {EXPORT_QUALITY_PRESETS[key].label}
+          {/* Resolution, Quality Preset & Codec Controls */}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Output Resolution Selector */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] flex items-center gap-1">
+                  <Monitor className="size-3 text-signal" /> Output Resolution
+                </Label>
+                <span className="font-mono text-[9px] text-muted-foreground">
+                  {targetResolution.width}×{targetResolution.height}
+                </span>
+              </div>
+              <Select
+                value={exportConfig.resolution || "original"}
+                onValueChange={(v: ExportResolutionPreset) => {
+                  setExportConfig({ resolution: v });
+                }}
+                disabled={disabled || isExporting}
+              >
+                <SelectTrigger className="h-7 text-xs font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="original" className="text-xs font-mono font-bold text-foreground">
+                    Original Dimension ({sourceWidth} × {sourceHeight})
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                  <SelectItem value="4k" className="text-xs font-mono">
+                    4K UHD (2160p)
+                  </SelectItem>
+                  <SelectItem value="1440p" className="text-xs font-mono">
+                    1440p QHD (2K)
+                  </SelectItem>
+                  <SelectItem value="1080p" className="text-xs font-mono">
+                    1080p FHD (Full HD)
+                  </SelectItem>
+                  <SelectItem value="720p" className="text-xs font-mono">
+                    720p HD
+                  </SelectItem>
+                  <SelectItem value="480p" className="text-xs font-mono">
+                    480p SD
+                  </SelectItem>
+                  <SelectItem value="360p" className="text-xs font-mono">
+                    360p Low
+                  </SelectItem>
+                  <SelectItem value="scale-75" className="text-xs font-mono">
+                    75% Scale
+                  </SelectItem>
+                  <SelectItem value="scale-50" className="text-xs font-mono">
+                    50% Half Size
+                  </SelectItem>
+                  <SelectItem value="scale-25" className="text-xs font-mono">
+                    25% Quarter Size
+                  </SelectItem>
+                  <SelectItem value="custom" className="text-xs font-mono font-bold text-signal">
+                    Custom W × H...
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Quality Profile */}
+            <div className="space-y-1">
+              <Label className="text-[10px]">Quality & Bitrate</Label>
+              <Select
+                value={exportConfig.quality}
+                onValueChange={(v: ExportQuality) => {
+                  const preset = EXPORT_QUALITY_PRESETS[v];
+                  setExportConfig({
+                    quality: v,
+                    bitrateMbps: preset.bitrateMbps,
+                  });
+                }}
+                disabled={disabled || isExporting}
+              >
+                <SelectTrigger className="h-7 text-xs font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(EXPORT_QUALITY_PRESETS) as ExportQuality[]).map((key) => (
+                    <SelectItem key={key} value={key} className="text-xs font-mono">
+                      {EXPORT_QUALITY_PRESETS[key].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Container Format */}
+            <div className="space-y-1">
+              <Label className="text-[10px]">Container Format</Label>
+              <Select
+                value={exportConfig.format}
+                onValueChange={(v: "mp4" | "webm") => setExportConfig({ format: v })}
+                disabled={disabled || isExporting}
+              >
+                <SelectTrigger className="h-7 text-xs font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="mp4" className="text-xs font-mono">
+                    MP4 (AVC/H.264 + AAC)
+                  </SelectItem>
+                  <SelectItem value="webm" className="text-xs font-mono">
+                    WebM (VP9 + Opus)
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Synced Audio Toggle */}
+            <div className="space-y-1">
+              <Label className="text-[10px]">Audio Track</Label>
+              <Button
+                type="button"
+                variant={exportConfig.keepAudio ? "outline" : "secondary"}
+                size="sm"
+                disabled={disabled || isExporting}
+                onClick={() => setExportConfig({ keepAudio: !exportConfig.keepAudio })}
+                className="h-7 w-full justify-between px-2 text-[11px] font-mono"
+              >
+                <span className="flex items-center gap-1">
+                  {exportConfig.keepAudio ? (
+                    <Volume2 className="size-3 text-success" />
+                  ) : (
+                    <VolumeX className="size-3 text-muted-foreground" />
+                  )}
+                  {exportConfig.keepAudio ? "Retain Audio" : "Muted (No Audio)"}
+                </span>
+                <span className="text-[9px] text-muted-foreground uppercase font-bold">
+                  {exportConfig.keepAudio ? "ON" : "OFF"}
+                </span>
+              </Button>
+            </div>
           </div>
 
-          {/* Container Format */}
-          <div className="space-y-1">
-            <Label className="text-[10px]">Container Format</Label>
-            <Select
-              value={exportConfig.format}
-              onValueChange={(v: "mp4" | "webm") => setExportConfig({ format: v })}
-              disabled={disabled || isExporting}
-            >
-              <SelectTrigger className="h-7 text-xs font-mono">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="mp4" className="text-xs font-mono">
-                  MP4 (AVC/H.264 + AAC)
-                </SelectItem>
-                <SelectItem value="webm" className="text-xs font-mono">
-                  WebM (VP9 + Opus)
-                </SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Custom Resolution Dimension Inputs if Custom is selected */}
+          {exportConfig.resolution === "custom" ? (
+            <div className="space-y-2 rounded-[var(--radius-sm)] border border-border bg-card p-2.5 font-mono text-xs">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-bold text-foreground flex items-center gap-1">
+                  <Monitor className="size-3 text-signal" /> Custom Output Resolution (Even Dimensions)
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  Aspect: <strong>{(targetResolution.width / targetResolution.height).toFixed(2)}:1</strong>
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Width */}
+                <div className="flex items-center gap-1">
+                  <Label className="text-[10px] text-muted-foreground">W:</Label>
+                  <Input
+                    type="number"
+                    min={64}
+                    max={7680}
+                    step={2}
+                    value={exportConfig.customWidth ?? targetResolution.width}
+                    onChange={(e) => {
+                      const val = Number.parseInt(e.target.value, 10);
+                      if (Number.isNaN(val) || val <= 0) return;
+                      const evenW = Math.max(2, Math.floor(val / 2) * 2);
+                      const isLocked = exportConfig.lockAspectRatio !== false;
+                      if (isLocked) {
+                        const evenH = Math.max(2, Math.floor(Math.round(evenW / sourceAspect) / 2) * 2);
+                        setExportConfig({ customWidth: evenW, customHeight: evenH });
+                      } else {
+                        setExportConfig({ customWidth: evenW });
+                      }
+                    }}
+                    className="h-7 w-20 px-1.5 text-center font-mono text-xs font-bold"
+                  />
+                  <span className="text-[10px] text-muted-foreground">px</span>
+                </div>
+
+                {/* Aspect Ratio Lock Toggle */}
+                <Button
+                  type="button"
+                  variant={exportConfig.lockAspectRatio !== false ? "signal" : "outline"}
+                  size="sm"
+                  onClick={() =>
+                    setExportConfig({ lockAspectRatio: exportConfig.lockAspectRatio === false })
+                  }
+                  className="h-7 px-2 text-[10px]"
+                  title={
+                    exportConfig.lockAspectRatio !== false
+                      ? "Aspect ratio locked to source video"
+                      : "Aspect ratio unlocked"
+                  }
+                >
+                  {exportConfig.lockAspectRatio !== false ? (
+                    <span className="flex items-center gap-1">
+                      <Link2 className="size-3" /> Locked Ratio
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <Unlink2 className="size-3" /> Free Ratio
+                    </span>
+                  )}
+                </Button>
+
+                {/* Height */}
+                <div className="flex items-center gap-1">
+                  <Label className="text-[10px] text-muted-foreground">H:</Label>
+                  <Input
+                    type="number"
+                    min={64}
+                    max={4320}
+                    step={2}
+                    value={exportConfig.customHeight ?? targetResolution.height}
+                    onChange={(e) => {
+                      const val = Number.parseInt(e.target.value, 10);
+                      if (Number.isNaN(val) || val <= 0) return;
+                      const evenH = Math.max(2, Math.floor(val / 2) * 2);
+                      const isLocked = exportConfig.lockAspectRatio !== false;
+                      if (isLocked) {
+                        const evenW = Math.max(2, Math.floor(Math.round(evenH * sourceAspect) / 2) * 2);
+                        setExportConfig({ customWidth: evenW, customHeight: evenH });
+                      } else {
+                        setExportConfig({ customHeight: evenH });
+                      }
+                    }}
+                    className="h-7 w-20 px-1.5 text-center font-mono text-xs font-bold"
+                  />
+                  <span className="text-[10px] text-muted-foreground">px</span>
+                </div>
+
+                {/* Quick Aspect Presets */}
+                <div className="flex flex-wrap items-center gap-1 ml-auto">
+                  <span className="text-[9px] text-muted-foreground uppercase font-bold">Presets:</span>
+                  {[
+                    { label: "1080p", w: 1920, h: 1080 },
+                    { label: "720p", w: 1280, h: 720 },
+                    { label: "Vertical 9:16", w: 1080, h: 1920 },
+                    { label: "Square 1:1", w: 1080, h: 1080 },
+                  ].map((p) => (
+                    <Button
+                      key={p.label}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setExportConfig({ customWidth: p.w, customHeight: p.h })}
+                      className="h-6 px-1.5 text-[9px]"
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Custom Bitrate Slider if selected */}
+          {exportConfig.quality === "custom" ? (
+            <div className="space-y-1 rounded-[var(--radius-sm)] border border-border bg-card p-2">
+              <div className="flex items-center justify-between text-[10px] font-mono">
+                <span>Custom Bitrate</span>
+                <strong className="text-signal">{exportConfig.bitrateMbps} Mbps</strong>
+              </div>
+              <Slider
+                min={1}
+                max={30}
+                step={0.5}
+                value={[exportConfig.bitrateMbps]}
+                onValueChange={([val]) => setExportConfig({ bitrateMbps: val ?? 8 })}
+              />
+            </div>
+          ) : null}
+
+          {/* Technical Specifications Export Summary Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-secondary/60 px-2.5 py-1.5 font-mono text-[11px]">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Monitor className="size-3 text-signal" />
+                <span>Output Resolution:</span>
+                <strong className="text-foreground">
+                  {targetResolution.width} × {targetResolution.height} px
+                </strong>
+              </span>
+              <span className="rounded-xs bg-card px-1.5 py-0.2 text-[10px] font-semibold border border-border">
+                {exportConfig.resolution === "original"
+                  ? "Original Dimension (100%)"
+                  : pixelPercentChange === 0
+                    ? "100% Scale"
+                    : pixelPercentChange < 0
+                      ? `${pixelPercentChange}% size`
+                      : `+${pixelPercentChange}% scale`}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              <span>
+                Codec: <strong className="text-foreground">{exportConfig.format === "mp4" ? "H.264/AVC" : "VP9"}</strong>
+              </span>
+              <span>•</span>
+              <span>
+                Bitrate: <strong className="text-foreground">{exportConfig.bitrateMbps} Mbps</strong>
+              </span>
+              <span>•</span>
+              <span>
+                Audio:{" "}
+                <strong className={exportConfig.keepAudio ? "text-success" : "text-muted-foreground"}>
+                  {exportConfig.keepAudio ? "Synced AAC" : "Muted"}
+                </strong>
+              </span>
+            </div>
           </div>
 
-          {/* Synced Audio Toggle */}
-          <div className="space-y-1">
-            <Label className="text-[10px]">Audio Track</Label>
+          {/* Hardware WebCodecs Export Execution Button */}
+          <div className="pt-1">
             <Button
               type="button"
-              variant={exportConfig.keepAudio ? "outline" : "secondary"}
-              size="sm"
-              disabled={disabled || isExporting}
-              onClick={() => setExportConfig({ keepAudio: !exportConfig.keepAudio })}
-              className="h-7 w-full justify-between px-2 text-[11px] font-mono"
+              variant="signal"
+              size="lg"
+              disabled={disabled || isExporting || !video || outputDurationSec <= 0.01}
+              onClick={() => void handleRunExport()}
+              className="w-full gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] active:translate-x-[1px] active:translate-y-[1px]"
             >
-              <span className="flex items-center gap-1">
-                {exportConfig.keepAudio ? (
-                  <Volume2 className="size-3 text-success" />
-                ) : (
-                  <VolumeX className="size-3 text-muted-foreground" />
-                )}
-                {exportConfig.keepAudio ? "Retain Synced Audio" : "Muted (No Audio)"}
-              </span>
-              <span className="text-[9px] text-muted-foreground uppercase">
-                {exportConfig.keepAudio ? "ON" : "OFF"}
-              </span>
+              <Zap className="size-4" />
+              {isExporting
+                ? "Hardware WebCodecs Exporting..."
+                : `Export ${trimMode === "trim" ? "Trimmed" : "Cut"} Video (${targetResolution.width}×${targetResolution.height} · ${formatTime(outputDurationSec)})`}
             </Button>
           </div>
-        </div>
 
-        {/* Custom Bitrate Slider if selected */}
-        {exportConfig.quality === "custom" ? (
-          <div className="space-y-1 rounded-[var(--radius-sm)] border border-border bg-card p-2">
-            <div className="flex items-center justify-between text-[10px] font-mono">
-              <span>Custom Bitrate</span>
-              <strong className="text-signal">{exportConfig.bitrateMbps} Mbps</strong>
-            </div>
-            <Slider
-              min={1}
-              max={30}
-              step={0.5}
-              value={[exportConfig.bitrateMbps]}
-              onValueChange={([val]) => setExportConfig({ bitrateMbps: val ?? 8 })}
-            />
-          </div>
-        ) : null}
-
-        {/* Hardware WebCodecs Export Execution Button */}
-        <div className="pt-1">
-          <Button
-            type="button"
-            variant="signal"
-            size="lg"
-            disabled={disabled || isExporting || !video || outputDurationSec <= 0.01}
-            onClick={() => void handleRunExport()}
-            className="w-full gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] active:translate-x-[1px] active:translate-y-[1px]"
-          >
-            <Zap className="size-4" />
-            {isExporting
-              ? "Hardware WebCodecs Exporting..."
-              : `Export ${trimMode === "trim" ? "Trimmed" : "Cut"} Video (${formatTime(outputDurationSec)})`}
-          </Button>
-        </div>
-
-        {/* Active Export Progress Panel */}
-        {isExporting && exportProgress ? (
-          <div className="rounded-[var(--radius-sm)] border-2 border-signal bg-theater p-3 font-mono text-xs text-[#fceee2] shadow-inner space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-signal font-bold">
-                <Flame className="size-3.5 animate-bounce" />
-                {exportProgress.message || "Hardware Encoding..."}
-              </span>
-              <span className="font-bold text-white text-sm">{exportProgress.percent}%</span>
-            </div>
-
-            <Progress value={exportProgress.percent} className="h-2" />
-
-            <div className="flex flex-wrap items-center justify-between text-[11px] text-muted-foreground pt-1">
-              <span>
-                Speed: <strong className="text-signal font-bold">{exportProgress.speedMultiplier}×</strong> ({exportProgress.fps} fps)
-              </span>
-              <span>
-                Frames: <strong className="text-white">{exportProgress.currentFrame}</strong> / {exportProgress.totalFrames}
-              </span>
-              <span>
-                Elapsed: <strong className="text-white">{exportProgress.elapsedSec}s</strong>
-                {exportProgress.estimatedRemainingSec > 0 ? ` (ETA: ${exportProgress.estimatedRemainingSec}s)` : ""}
-              </span>
-            </div>
-
-            <div className="pt-1 flex justify-end">
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={handleCancelExport}
-                className="h-6 px-2 text-[10px]"
-              >
-                Cancel Export
-              </Button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Export Result & Download Card */}
-        {exportResult ? (
-          <div className="rounded-[var(--radius-sm)] border-2 border-success bg-success/10 p-3 font-mono text-xs text-foreground shadow-[2px_2px_0px_var(--color-border)] space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 font-bold text-success">
-                <CheckCircle2 className="size-4" />
-                <span>Export Succeeded (Hardware WebCodecs)</span>
+          {/* Active Export Progress Panel */}
+          {isExporting && exportProgress ? (
+            <div className="rounded-[var(--radius-sm)] border-2 border-signal bg-theater p-3 font-mono text-xs text-[#fceee2] shadow-inner space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-signal font-bold">
+                  <Flame className="size-3.5 animate-bounce" />
+                  {exportProgress.message || "Hardware Encoding..."}
+                </span>
+                <span className="font-bold text-white text-sm">{exportProgress.percent}%</span>
               </div>
-              <Badge variant="outline" className="border-success text-success">
-                {exportResult.speedMultiplier}× Realtime Speed
-              </Badge>
-            </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground border-t border-border/50 pt-1.5">
-              <span>
-                File: <strong className="text-foreground">{exportResult.fileName}</strong>
-              </span>
-              <span>
-                Size: <strong className="text-foreground">{formatFileSize(exportResult.fileSize)}</strong>
-              </span>
-              <span>
-                Duration: <strong className="text-foreground">{formatTime(exportResult.durationSec, true)}</strong>
-              </span>
-            </div>
+              <Progress value={exportProgress.percent} className="h-2" />
 
-            <div className="pt-1 flex items-center gap-2">
-              <Button
-                type="button"
-                variant="success"
-                size="default"
-                onClick={() => void downloadBlob(exportResult.blob, exportResult.fileName)}
-                className="flex-1 gap-2 font-bold shadow-[2px_2px_0px_var(--color-border)]"
-              >
-                <Download className="size-4" />
-                Download Exported Video ({formatFileSize(exportResult.fileSize)})
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="default"
-                onClick={() => setExportResult(null)}
-                className="px-2"
-                title="Dismiss result"
-              >
-                <X className="size-4" />
-              </Button>
+              <div className="flex flex-wrap items-center justify-between text-[11px] text-muted-foreground pt-1">
+                <span>
+                  Speed: <strong className="text-signal font-bold">{exportProgress.speedMultiplier}×</strong> ({exportProgress.fps} fps)
+                </span>
+                <span>
+                  Frames: <strong className="text-white">{exportProgress.currentFrame}</strong> / {exportProgress.totalFrames}
+                </span>
+                <span>
+                  Elapsed: <strong className="text-white">{exportProgress.elapsedSec}s</strong>
+                  {exportProgress.estimatedRemainingSec > 0 ? ` (ETA: ${exportProgress.estimatedRemainingSec}s)` : ""}
+                </span>
+              </div>
+
+              <div className="pt-1 flex justify-end">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleCancelExport}
+                  className="h-6 px-2 text-[10px]"
+                >
+                  Cancel Export
+                </Button>
+              </div>
             </div>
-          </div>
-        ) : null}
-      </div>
-    </DeckExpander>
+          ) : null}
+
+          {/* Export Result & Download Card */}
+          {exportResult ? (
+            <div className="rounded-[var(--radius-sm)] border-2 border-success bg-success/10 p-3 font-mono text-xs text-foreground shadow-[2px_2px_0px_var(--color-border)] space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-success">
+                  <CheckCircle2 className="size-4" />
+                  <span>Export Succeeded (Hardware WebCodecs)</span>
+                </div>
+                <Badge variant="outline" className="border-success text-success">
+                  {exportResult.speedMultiplier}× Realtime Speed
+                </Badge>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground border-t border-border/50 pt-1.5">
+                <span>
+                  File: <strong className="text-foreground">{exportResult.fileName}</strong>
+                </span>
+                <span>
+                  Resolution: <strong className="text-foreground">{exportResult.width} × {exportResult.height} px</strong>
+                </span>
+                <span>
+                  Size: <strong className="text-foreground">{formatFileSize(exportResult.fileSize)}</strong>
+                </span>
+                <span>
+                  Duration: <strong className="text-foreground">{formatTime(exportResult.durationSec, true)}</strong>
+                </span>
+              </div>
+
+              <div className="pt-1 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="success"
+                  size="default"
+                  onClick={() => void downloadBlob(exportResult.blob, exportResult.fileName)}
+                  className="flex-1 gap-2 font-bold shadow-[2px_2px_0px_var(--color-border)]"
+                >
+                  <Download className="size-4" />
+                  Download Exported Video ({exportResult.width}×{exportResult.height} · {formatFileSize(exportResult.fileSize)})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="default"
+                  onClick={() => setExportResult(null)}
+                  className="px-2"
+                  title="Dismiss result"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </DeckExpander>
     </div>
   );
 }

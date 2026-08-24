@@ -39,6 +39,10 @@ export function sortCaptures(
 
 export const DEFAULT_EXPORT_CONFIG: ExportConfig = {
   quality: "lossless",
+  resolution: "original",
+  customWidth: 1920,
+  customHeight: 1080,
+  lockAspectRatio: true,
   format: "mp4",
   bitrateMbps: 18,
   fps: 30,

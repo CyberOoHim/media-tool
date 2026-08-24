@@ -1358,6 +1358,7 @@ export function VideoPlayer() {
           durationSec={duration}
           onSeek={jumpTo}
           disabled={disabled}
+          videoDims={videoDims}
         />
       </div>
 

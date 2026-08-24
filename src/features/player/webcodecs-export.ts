@@ -1,6 +1,11 @@
 import { ArrayBufferTarget, Muxer as Mp4Muxer } from "mp4-muxer";
 import { ArrayBufferTarget as WebmArrayBufferTarget, Muxer as WebmMuxer } from "webm-muxer";
-import type { ExportConfig, ExportProgress, ExportResult } from "./trim-types";
+import {
+  calculateExportResolution,
+  type ExportConfig,
+  type ExportProgress,
+  type ExportResult,
+} from "./trim-types";
 
 export interface ExportSegment {
   startSec: number;
@@ -96,9 +101,15 @@ export async function exportVideoWebCodecs({
 
   const rawWidth = video.videoWidth || 1920;
   const rawHeight = video.videoHeight || 1080;
-  // Video codecs require dimensions to be even numbers
-  const width = Math.floor(rawWidth / 2) * 2;
-  const height = Math.floor(rawHeight / 2) * 2;
+
+  // Calculate target output resolution based on exportConfig
+  const { width, height } = calculateExportResolution(
+    rawWidth,
+    rawHeight,
+    config.resolution || "original",
+    config.customWidth,
+    config.customHeight,
+  );
 
   const targetFps = config.fps > 0 ? config.fps : 30;
   const frameDurationSec = 1 / targetFps;
@@ -494,5 +505,7 @@ export async function exportVideoWebCodecs({
     speedMultiplier: finalSpeedMultiplier,
     processingTimeMs: Math.round(processingTimeMs),
     format: isMp4 ? "mp4" : "webm",
+    width,
+    height,
   };
 }
