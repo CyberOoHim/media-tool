@@ -1,6 +1,6 @@
 export type TrimMode = "trim" | "cut";
 
-export type ExportQuality = "lossless" | "high" | "medium" | "compact" | "custom";
+export type ExportQuality = "lossless" | "high" | "medium" | "compact" | "ultra-compact" | "custom";
 
 export type ExportResolutionPreset =
   | "original"
@@ -92,6 +92,11 @@ export const EXPORT_QUALITY_PRESETS: Record<
     label: "Compact (2.5 Mbps)",
     bitrateMbps: 2.5,
     description: "Optimized for lightweight quick sharing and web embeddings",
+  },
+  "ultra-compact": {
+    label: "1 Mbps (Ultra-Compact)",
+    bitrateMbps: 1,
+    description: "Minimal file size / low bitrate (1 Mbps) for instant mobile sharing",
   },
   custom: {
     label: "Custom Bitrate",
