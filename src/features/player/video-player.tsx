@@ -40,6 +40,7 @@ import {
   clampZoom,
   getTransformCss,
   hasActiveTransform,
+  normalizeRotation,
   rotateClockwise,
   type TransformState,
 } from "@/features/media/transform";
@@ -94,10 +95,12 @@ export function VideoPlayer() {
     startPanY: number;
   } | null>(null);
 
-  // Multi-Touch Pinch & Pan Touch References
+  // Multi-Touch Pinch, Rotate & Pan Touch References
   const touchStateRef = useRef<{
     initialDistance: number;
     initialZoom: number;
+    initialAngle: number;
+    initialRotation: number;
     initialMidpoint: { x: number; y: number };
     startPanX: number;
     startPanY: number;
@@ -106,6 +109,8 @@ export function VideoPlayer() {
   }>({
     initialDistance: 0,
     initialZoom: 1,
+    initialAngle: 0,
+    initialRotation: 0,
     initialMidpoint: { x: 0, y: 0 },
     startPanX: 0,
     startPanY: 0,
@@ -564,16 +569,19 @@ export function VideoPlayer() {
             }}
             onTouchStart={(event) => {
               if (event.touches.length === 2) {
-                // Multi-touch Pinch to zoom
+                // Multi-touch Pinch to zoom, Two-finger Rotate, and Two-finger Pan
                 const t1 = event.touches[0]!;
                 const t2 = event.touches[1]!;
                 const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+                const angle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * (180 / Math.PI);
                 const midX = (t1.clientX + t2.clientX) / 2;
                 const midY = (t1.clientY + t2.clientY) / 2;
                 touchStateRef.current = {
                   ...touchStateRef.current,
                   initialDistance: dist,
                   initialZoom: videoTransform.zoom,
+                  initialAngle: angle,
+                  initialRotation: videoTransform.rotation,
                   initialMidpoint: { x: midX, y: midY },
                   startPanX: videoTransform.panX,
                   startPanY: videoTransform.panY,
@@ -600,9 +608,9 @@ export function VideoPlayer() {
                       toast("+10s");
                     } else {
                       // Double tap center: reset transforms or zoom toggle
-                      if (videoTransform.zoom > 1 || videoTransform.panX !== 0 || videoTransform.panY !== 0) {
-                        setVideoTransform((prev) => ({ ...prev, zoom: 1, panX: 0, panY: 0 }));
-                        toast("Transforms Centered (100%)");
+                      if (hasActiveTransform(videoTransform)) {
+                        setVideoTransform(DEFAULT_TRANSFORM);
+                        toast("All Transforms Cleared (100% / 0°)");
                       } else {
                         setVideoTransform((prev) => ({ ...prev, zoom: 2 }));
                         toast("2× Zoom");
@@ -630,21 +638,30 @@ export function VideoPlayer() {
             }}
             onTouchMove={(event) => {
               if (event.touches.length === 2) {
-                // Pinch to Zoom
+                // Multi-touch: Pinch to Zoom + Two-Finger Rotate + Two-Finger Pan
                 const t1 = event.touches[0]!;
                 const t2 = event.touches[1]!;
                 const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+                const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * (180 / Math.PI);
+
                 if (touchStateRef.current.initialDistance > 0) {
+                  // 1. Pinch to Zoom
                   const scaleFactor = currentDist / touchStateRef.current.initialDistance;
                   const targetZoom = clampZoom(touchStateRef.current.initialZoom * scaleFactor);
 
-                  // 2-Finger Pan offset adjustment
+                  // 2. Two-finger continuous Rotate
+                  let angleDelta = currentAngle - touchStateRef.current.initialAngle;
+                  while (angleDelta > 180) angleDelta -= 360;
+                  while (angleDelta < -180) angleDelta += 360;
+                  const targetRotation = normalizeRotation(touchStateRef.current.initialRotation + angleDelta);
+
+                  // 3. 2-Finger Pan offset adjustment
                   const midX = (t1.clientX + t2.clientX) / 2;
                   const midY = (t1.clientY + t2.clientY) / 2;
                   const rect = videoContainerRef.current?.getBoundingClientRect();
                   let newPanX = videoTransform.panX;
                   let newPanY = videoTransform.panY;
-                  if (rect) {
+                  if (rect && rect.width > 0 && rect.height > 0) {
                     const dx = midX - touchStateRef.current.initialMidpoint.x;
                     const dy = midY - touchStateRef.current.initialMidpoint.y;
                     newPanX = clampPan(touchStateRef.current.startPanX + (dx / rect.width) * 100);
@@ -654,6 +671,7 @@ export function VideoPlayer() {
                   setVideoTransform((prev) => ({
                     ...prev,
                     zoom: targetZoom,
+                    rotation: targetRotation,
                     panX: newPanX,
                     panY: newPanY,
                   }));
@@ -672,8 +690,17 @@ export function VideoPlayer() {
             onTouchEnd={(event) => {
               if (event.touches.length < 2) {
                 touchStateRef.current.initialDistance = 0;
+                touchStateRef.current.initialAngle = 0;
               }
-              if (event.touches.length === 0) {
+              if (event.touches.length === 1) {
+                const t = event.touches[0]!;
+                dragStartRef.current = {
+                  x: t.clientX,
+                  y: t.clientY,
+                  startPanX: videoTransform.panX,
+                  startPanY: videoTransform.panY,
+                };
+              } else if (event.touches.length === 0) {
                 setIsPanning(false);
                 dragStartRef.current = null;
               }
@@ -691,13 +718,8 @@ export function VideoPlayer() {
             }}
             onDoubleClick={(event) => {
               event.stopPropagation();
-              setVideoTransform((prev) => ({
-                ...prev,
-                zoom: 1,
-                panX: 0,
-                panY: 0,
-              }));
-              toast("Zoom & Pan Centered");
+              setVideoTransform(DEFAULT_TRANSFORM);
+              toast("All Transforms Cleared (100% / 0°)");
             }}
             onDragOver={(event) => {
               if (event.dataTransfer.types.includes("Files")) event.preventDefault();
@@ -711,15 +733,33 @@ export function VideoPlayer() {
               }
             }}
           >
-            {/* Retro Bezel Overlay Frame Corners */}
+            {/* Retro Bezel Overlay Frame Corners & Floating Clear Button */}
             <div className="pointer-events-none absolute inset-2 z-10 flex flex-col justify-between text-muted/30 font-mono text-[10px]">
-              <div className="flex justify-between">
+              <div className="flex items-center justify-between">
                 <span>⌜ VCR-REC</span>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
                   {hasActiveTransform(videoTransform) ? (
-                    <span className="rounded-xs bg-signal/20 px-1 text-signal font-bold">
-                      TRANSFORM ACTIVE
-                    </span>
+                    <div className="pointer-events-auto flex items-center gap-1.5">
+                      <span className="rounded-xs bg-signal/20 px-1 text-signal font-bold">
+                        {Math.round(normalizeRotation(videoTransform.rotation)) !== 0
+                          ? `ROT ${Math.round(normalizeRotation(videoTransform.rotation))}°`
+                          : "TRANSFORM ACTIVE"}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="h-6 px-2 font-mono text-[9px] font-bold shadow-[2px_2px_0px_rgba(0,0,0,0.8)] touch-manipulation active:scale-95"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setVideoTransform(DEFAULT_TRANSFORM);
+                          toast("All video transforms cleared");
+                        }}
+                      >
+                        <RotateCcw className="size-3 mr-1" />
+                        Clear Transforms
+                      </Button>
+                    </div>
                   ) : null}
                   <span>CH-01 ⌝</span>
                 </div>

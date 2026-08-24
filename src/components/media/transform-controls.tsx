@@ -104,17 +104,24 @@ export function TransformControls({
             </Hint>
           ) : null}
 
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 px-2.5 text-[11px] font-bold text-muted-foreground hover:text-foreground touch-manipulation"
-            onClick={onReset}
-            disabled={!isActive}
-          >
-            <RotateCcw className="size-3.5 mr-1" />
-            Reset All
-          </Button>
+          <Hint label="Clear all transforms, crop, zoom, and rotation back to default">
+            <Button
+              type="button"
+              variant={isActive ? "destructive" : "outline"}
+              size="sm"
+              className={cn(
+                "h-8 px-2.5 text-[11px] font-mono font-bold touch-manipulation active:scale-95",
+                isActive
+                  ? "shadow-[2px_2px_0px_var(--color-border)]"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onReset}
+              disabled={!isActive}
+            >
+              <RotateCcw className="size-3.5 mr-1.5" />
+              Clear All Transforms
+            </Button>
+          </Hint>
         </div>
       </div>
 
@@ -181,6 +188,19 @@ export function TransformControls({
               </Button>
             ))}
           </div>
+
+          <div className="pt-0.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 w-full text-[10px] font-mono font-bold touch-manipulation active:scale-95"
+              onClick={() => onChange({ zoom: 1 })}
+              disabled={transform.zoom === 1}
+            >
+              Reset Zoom (100%)
+            </Button>
+          </div>
         </div>
 
         {/* 2. Pan Offset Controls */}
@@ -239,11 +259,25 @@ export function TransformControls({
             <span className="text-muted-foreground flex items-center gap-1.5">
               <RotateCw className="size-3.5" /> Rotation
             </span>
-            <span className="tabular text-foreground font-bold text-xs">
-              {Math.round(normalizeRotation(transform.rotation)) > 0
-                ? `+${Math.round(normalizeRotation(transform.rotation))}°`
-                : `${Math.round(normalizeRotation(transform.rotation))}°`}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="tabular text-foreground font-bold text-xs">
+                {Math.round(normalizeRotation(transform.rotation)) > 0
+                  ? `+${Math.round(normalizeRotation(transform.rotation))}°`
+                  : `${Math.round(normalizeRotation(transform.rotation))}°`}
+              </span>
+              {normalizeRotation(transform.rotation) !== 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] font-mono text-signal hover:text-signal/80 font-bold touch-manipulation active:scale-95"
+                  onClick={() => onChange({ rotation: 0 })}
+                >
+                  <RotateCcw className="size-2.5 mr-1" />
+                  Reset
+                </Button>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -281,8 +315,8 @@ export function TransformControls({
             </Hint>
           </div>
 
-          <div className="grid grid-cols-4 gap-1.5 pt-1">
-            {[-180, -90, 90, 180].map((deg) => (
+          <div className="grid grid-cols-5 gap-1 pt-1">
+            {[-180, -90, 0, 90, 180].map((deg) => (
               <Button
                 key={deg}
                 type="button"
@@ -291,9 +325,28 @@ export function TransformControls({
                 className="h-7 px-0 text-[10px] font-mono font-bold touch-manipulation active:scale-95"
                 onClick={() => onChange({ rotation: deg })}
               >
-                {deg > 0 ? `+${deg}°` : `${deg}°`}
+                {deg === 0 ? "0°" : deg > 0 ? `+${deg}°` : `${deg}°`}
               </Button>
             ))}
+          </div>
+
+          <div className="pt-0.5">
+            <Button
+              type="button"
+              variant={normalizeRotation(transform.rotation) !== 0 ? "outline" : "ghost"}
+              size="sm"
+              className={cn(
+                "h-7.5 w-full text-[10px] font-mono font-bold touch-manipulation active:scale-95 flex items-center justify-center gap-1.5",
+                normalizeRotation(transform.rotation) !== 0
+                  ? "border-border text-foreground hover:bg-accent"
+                  : "text-muted-foreground/50",
+              )}
+              onClick={() => onChange({ rotation: 0 })}
+              disabled={normalizeRotation(transform.rotation) === 0}
+            >
+              <RotateCcw className="size-3" />
+              Reset Rotate (0°)
+            </Button>
           </div>
         </div>
 

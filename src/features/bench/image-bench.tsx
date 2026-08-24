@@ -37,6 +37,7 @@ import {
   clampZoom,
   getTransformCss,
   hasActiveTransform,
+  normalizeRotation,
   type TransformState,
 } from "@/features/media/transform";
 import {
@@ -470,6 +471,12 @@ export function ImageBench() {
                 setBenchTransform({ zoom: 1, panX: 0, panY: 0 });
                 toast("Zoom & Pan Centered");
               }}
+              onClearTransforms={() => {
+                resetBenchTransform();
+                setSettings({ cropPreset: "none" });
+                toast("All bench transforms cleared");
+              }}
+              onTransformChange={(partial) => setBenchTransform(partial)}
               containerRef={previewContainerRef}
             />
 
@@ -585,6 +592,8 @@ function PreviewCard({
   onWheelZoom,
   onPanStart,
   onResetZoomPan,
+  onClearTransforms,
+  onTransformChange,
   containerRef,
 }: {
   title: string;
@@ -602,12 +611,36 @@ function PreviewCard({
   onWheelZoom?: (delta: number) => void;
   onPanStart?: (e: React.MouseEvent) => void;
   onResetZoomPan?: () => void;
+  onClearTransforms?: () => void;
+  onTransformChange?: (partial: Partial<TransformState>) => void;
   containerRef?: React.RefObject<HTMLDivElement | null>;
 }) {
   const hasTransform = transform && hasActiveTransform(transform);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
     width: 0,
     height: 0,
+  });
+
+  const touchStateRef = useRef<{
+    initialDistance: number;
+    initialZoom: number;
+    initialAngle: number;
+    initialRotation: number;
+    initialMidpoint: { x: number; y: number };
+    startPanX: number;
+    startPanY: number;
+    lastTapTime: number;
+    lastTapPos: { x: number; y: number };
+  }>({
+    initialDistance: 0,
+    initialZoom: 1,
+    initialAngle: 0,
+    initialRotation: 0,
+    initialMidpoint: { x: 0, y: 0 },
+    startPanX: 0,
+    startPanY: 0,
+    lastTapTime: 0,
+    lastTapPos: { x: 0, y: 0 },
   });
 
   useEffect(() => {
@@ -628,18 +661,37 @@ function PreviewCard({
   return (
     <div className="flex flex-col rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 shadow-[2px_2px_0px_var(--color-border)]">
       {/* Card Header */}
-      <div className="mb-2 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <p className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">{title}</p>
+      <div className="mb-2 flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p className="font-mono text-xs font-bold uppercase tracking-wider text-foreground truncate">{title}</p>
           {hasTransform ? (
-            <span className="rounded-xs bg-signal/20 px-1 font-mono text-[9px] font-bold text-signal">
-              TRANSFORMED
+            <span className="rounded-xs bg-signal/20 px-1 font-mono text-[9px] font-bold text-signal shrink-0">
+              {Math.round(normalizeRotation(transform.rotation)) !== 0
+                ? `ROT ${Math.round(normalizeRotation(transform.rotation))}°`
+                : "TRANSFORMED"}
             </span>
           ) : null}
         </div>
-        <Badge variant={sizeAccent ? "success" : "outline"} className="text-[9px]">
-          {tag}
-        </Badge>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {hasTransform && onClearTransforms ? (
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="h-5 px-1.5 font-mono text-[9px] font-bold touch-manipulation active:scale-95"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClearTransforms();
+              }}
+            >
+              <RotateCcw className="size-2.5 mr-1" />
+              Clear
+            </Button>
+          ) : null}
+          <Badge variant={sizeAccent ? "success" : "outline"} className="text-[9px]">
+            {tag}
+          </Badge>
+        </div>
       </div>
 
       {/* Image Preview Canvas */}
@@ -658,12 +710,114 @@ function PreviewCard({
           }
         }}
         onDoubleClick={() => {
-          if (isSourceInteractive && onResetZoomPan) {
-            onResetZoomPan();
+          if (isSourceInteractive) {
+            if (hasTransform && onClearTransforms) {
+              onClearTransforms();
+            } else if (onResetZoomPan) {
+              onResetZoomPan();
+            }
+          }
+        }}
+        onTouchStart={(event) => {
+          if (!isSourceInteractive || !transform || !onTransformChange) return;
+          if (event.touches.length === 2) {
+            const t1 = event.touches[0]!;
+            const t2 = event.touches[1]!;
+            const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+            const angle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * (180 / Math.PI);
+            const midX = (t1.clientX + t2.clientX) / 2;
+            const midY = (t1.clientY + t2.clientY) / 2;
+            touchStateRef.current = {
+              ...touchStateRef.current,
+              initialDistance: dist,
+              initialZoom: transform.zoom,
+              initialAngle: angle,
+              initialRotation: transform.rotation,
+              initialMidpoint: { x: midX, y: midY },
+              startPanX: transform.panX,
+              startPanY: transform.panY,
+            };
+          } else if (event.touches.length === 1) {
+            const t = event.touches[0]!;
+            const now = Date.now();
+            const last = touchStateRef.current.lastTapTime;
+            const lastPos = touchStateRef.current.lastTapPos;
+            const distFromLast = Math.hypot(t.clientX - lastPos.x, t.clientY - lastPos.y);
+
+            if (now - last < 300 && distFromLast < 40) {
+              if (hasTransform && onClearTransforms) {
+                onClearTransforms();
+              } else if (onResetZoomPan) {
+                onResetZoomPan();
+              } else {
+                onTransformChange({ zoom: 2 });
+              }
+              touchStateRef.current.lastTapTime = 0;
+              return;
+            }
+
+            touchStateRef.current.lastTapTime = now;
+            touchStateRef.current.lastTapPos = { x: t.clientX, y: t.clientY };
+            touchStateRef.current.startPanX = transform.panX;
+            touchStateRef.current.startPanY = transform.panY;
+          }
+        }}
+        onTouchMove={(event) => {
+          if (!isSourceInteractive || !transform || !onTransformChange) return;
+          if (event.touches.length === 2) {
+            const t1 = event.touches[0]!;
+            const t2 = event.touches[1]!;
+            const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+            const currentAngle = Math.atan2(t2.clientY - t1.clientY, t2.clientX - t1.clientX) * (180 / Math.PI);
+
+            if (touchStateRef.current.initialDistance > 0) {
+              const scaleFactor = currentDist / touchStateRef.current.initialDistance;
+              const targetZoom = clampZoom(touchStateRef.current.initialZoom * scaleFactor);
+
+              let angleDelta = currentAngle - touchStateRef.current.initialAngle;
+              while (angleDelta > 180) angleDelta -= 360;
+              while (angleDelta < -180) angleDelta += 360;
+              const targetRotation = normalizeRotation(touchStateRef.current.initialRotation + angleDelta);
+
+              const midX = (t1.clientX + t2.clientX) / 2;
+              const midY = (t1.clientY + t2.clientY) / 2;
+              const rect = containerRef?.current?.getBoundingClientRect();
+              let newPanX = transform.panX;
+              let newPanY = transform.panY;
+              if (rect && rect.width > 0 && rect.height > 0) {
+                const dx = midX - touchStateRef.current.initialMidpoint.x;
+                const dy = midY - touchStateRef.current.initialMidpoint.y;
+                newPanX = clampPan(touchStateRef.current.startPanX + (dx / rect.width) * 100);
+                newPanY = clampPan(touchStateRef.current.startPanY + (dy / rect.height) * 100);
+              }
+
+              onTransformChange({
+                zoom: targetZoom,
+                rotation: targetRotation,
+                panX: newPanX,
+                panY: newPanY,
+              });
+            }
+          } else if (event.touches.length === 1 && transform.zoom > 1) {
+            const t = event.touches[0]!;
+            const rect = containerRef?.current?.getBoundingClientRect();
+            if (rect && rect.width > 0 && rect.height > 0) {
+              const dx = t.clientX - touchStateRef.current.lastTapPos.x;
+              const dy = t.clientY - touchStateRef.current.lastTapPos.y;
+              const newPanX = clampPan(touchStateRef.current.startPanX + (dx / rect.width) * 100);
+              const newPanY = clampPan(touchStateRef.current.startPanY + (dy / rect.height) * 100);
+              onTransformChange({ panX: newPanX, panY: newPanY });
+            }
+          }
+        }}
+        onTouchEnd={(event) => {
+          if (event.touches.length < 2) {
+            touchStateRef.current.initialDistance = 0;
+            touchStateRef.current.initialAngle = 0;
           }
         }}
         className={cn(
-          "checkerboard relative mb-2.5 flex h-48 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border-2 border-border select-none",
+          "checkerboard relative mb-2.5 flex h-48 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border-2 border-border select-none touch-none",
           isSourceInteractive && transform && transform.zoom > 1
             ? isPanning
               ? "cursor-grabbing"
