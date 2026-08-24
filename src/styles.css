@@ -194,6 +194,8 @@ html.light {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow-x: clip;
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
   }
 
   body {
@@ -201,11 +203,19 @@ html.light {
     background-image: 
       radial-gradient(circle at 1px 1px, var(--dot-color) 1px, transparent 0);
     background-size: 24px 24px;
+    padding-bottom: env(safe-area-inset-bottom, 16px);
   }
 
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  /* iPad minimum touch target boundary helper */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
   }
 
   :focus-visible {

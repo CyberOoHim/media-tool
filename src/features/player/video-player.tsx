@@ -46,6 +46,7 @@ import {
 import { CROP_PRESETS } from "@/features/media/types";
 import { cn } from "@/lib/utils";
 import { captureVideoFrame } from "./capture-frame";
+import { JogDial } from "./jog-dial";
 import { FRAME_STEP, PLAYBACK_RATES, nextRate } from "./rates";
 import { TrimControls } from "./trim-controls";
 
@@ -92,6 +93,25 @@ export function VideoPlayer() {
     startPanX: number;
     startPanY: number;
   } | null>(null);
+
+  // Multi-Touch Pinch & Pan Touch References
+  const touchStateRef = useRef<{
+    initialDistance: number;
+    initialZoom: number;
+    initialMidpoint: { x: number; y: number };
+    startPanX: number;
+    startPanY: number;
+    lastTapTime: number;
+    lastTapPos: { x: number; y: number };
+  }>({
+    initialDistance: 0,
+    initialZoom: 1,
+    initialMidpoint: { x: 0, y: 0 },
+    startPanX: 0,
+    startPanY: 0,
+    lastTapTime: 0,
+    lastTapPos: { x: 0, y: 0 },
+  });
 
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
     width: 0,
@@ -156,6 +176,14 @@ export function VideoPlayer() {
     const el = videoRef.current;
     setRate(next);
     if (el) el.playbackRate = next;
+  }, []);
+
+  const stepFrame = useCallback((frames: number) => {
+    const el = videoRef.current;
+    if (!el || !Number.isFinite(el.duration)) return;
+    el.pause();
+    const delta = frames * FRAME_STEP;
+    el.currentTime = Math.min(el.duration, Math.max(0, el.currentTime + delta));
   }, []);
 
   const capture = useCallback(async () => {
@@ -519,7 +547,7 @@ export function VideoPlayer() {
           <div
             ref={videoContainerRef}
             className={cn(
-              "relative flex min-h-[240px] items-center justify-center overflow-hidden lg:min-h-[320px] select-none",
+              "relative flex min-h-[240px] items-center justify-center overflow-hidden lg:min-h-[340px] select-none touch-none",
               videoTransform.zoom > 1 || isPanning
                 ? isPanning
                   ? "cursor-grabbing"
@@ -533,6 +561,122 @@ export function VideoPlayer() {
                 ...prev,
                 zoom: clampZoom(prev.zoom + delta),
               }));
+            }}
+            onTouchStart={(event) => {
+              if (event.touches.length === 2) {
+                // Multi-touch Pinch to zoom
+                const t1 = event.touches[0]!;
+                const t2 = event.touches[1]!;
+                const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+                const midX = (t1.clientX + t2.clientX) / 2;
+                const midY = (t1.clientY + t2.clientY) / 2;
+                touchStateRef.current = {
+                  ...touchStateRef.current,
+                  initialDistance: dist,
+                  initialZoom: videoTransform.zoom,
+                  initialMidpoint: { x: midX, y: midY },
+                  startPanX: videoTransform.panX,
+                  startPanY: videoTransform.panY,
+                };
+              } else if (event.touches.length === 1) {
+                const t = event.touches[0]!;
+                const now = Date.now();
+                const last = touchStateRef.current.lastTapTime;
+                const lastPos = touchStateRef.current.lastTapPos;
+                const distFromLast = Math.hypot(t.clientX - lastPos.x, t.clientY - lastPos.y);
+
+                // Double-tap detection (<300ms, <40px movement)
+                if (now - last < 300 && distFromLast < 40) {
+                  const rect = videoContainerRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    const relativeX = (t.clientX - rect.left) / rect.width;
+                    if (relativeX < 0.35) {
+                      // Double tap left edge: -10s
+                      seekBy(-10);
+                      toast("-10s");
+                    } else if (relativeX > 0.65) {
+                      // Double tap right edge: +10s
+                      seekBy(10);
+                      toast("+10s");
+                    } else {
+                      // Double tap center: reset transforms or zoom toggle
+                      if (videoTransform.zoom > 1 || videoTransform.panX !== 0 || videoTransform.panY !== 0) {
+                        setVideoTransform((prev) => ({ ...prev, zoom: 1, panX: 0, panY: 0 }));
+                        toast("Transforms Centered (100%)");
+                      } else {
+                        setVideoTransform((prev) => ({ ...prev, zoom: 2 }));
+                        toast("2× Zoom");
+                      }
+                    }
+                  }
+                  touchStateRef.current.lastTapTime = 0;
+                  return;
+                }
+
+                touchStateRef.current.lastTapTime = now;
+                touchStateRef.current.lastTapPos = { x: t.clientX, y: t.clientY };
+
+                // 1-Finger Pan when zoomed in
+                if (videoTransform.zoom > 1) {
+                  dragStartRef.current = {
+                    x: t.clientX,
+                    y: t.clientY,
+                    startPanX: videoTransform.panX,
+                    startPanY: videoTransform.panY,
+                  };
+                  setIsPanning(true);
+                }
+              }
+            }}
+            onTouchMove={(event) => {
+              if (event.touches.length === 2) {
+                // Pinch to Zoom
+                const t1 = event.touches[0]!;
+                const t2 = event.touches[1]!;
+                const currentDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+                if (touchStateRef.current.initialDistance > 0) {
+                  const scaleFactor = currentDist / touchStateRef.current.initialDistance;
+                  const targetZoom = clampZoom(touchStateRef.current.initialZoom * scaleFactor);
+
+                  // 2-Finger Pan offset adjustment
+                  const midX = (t1.clientX + t2.clientX) / 2;
+                  const midY = (t1.clientY + t2.clientY) / 2;
+                  const rect = videoContainerRef.current?.getBoundingClientRect();
+                  let newPanX = videoTransform.panX;
+                  let newPanY = videoTransform.panY;
+                  if (rect) {
+                    const dx = midX - touchStateRef.current.initialMidpoint.x;
+                    const dy = midY - touchStateRef.current.initialMidpoint.y;
+                    newPanX = clampPan(touchStateRef.current.startPanX + (dx / rect.width) * 100);
+                    newPanY = clampPan(touchStateRef.current.startPanY + (dy / rect.height) * 100);
+                  }
+
+                  setVideoTransform((prev) => ({
+                    ...prev,
+                    zoom: targetZoom,
+                    panX: newPanX,
+                    panY: newPanY,
+                  }));
+                }
+              } else if (event.touches.length === 1 && isPanning && dragStartRef.current && videoContainerRef.current) {
+                // 1-Finger Pan Drag
+                const t = event.touches[0]!;
+                const rect = videoContainerRef.current.getBoundingClientRect();
+                const dx = t.clientX - dragStartRef.current.x;
+                const dy = t.clientY - dragStartRef.current.y;
+                const newPanX = clampPan(dragStartRef.current.startPanX + (dx / rect.width) * 100);
+                const newPanY = clampPan(dragStartRef.current.startPanY + (dy / rect.height) * 100);
+                setVideoTransform((prev) => ({ ...prev, panX: newPanX, panY: newPanY }));
+              }
+            }}
+            onTouchEnd={(event) => {
+              if (event.touches.length < 2) {
+                touchStateRef.current.initialDistance = 0;
+              }
+              if (event.touches.length === 0) {
+                setIsPanning(false);
+                dragStartRef.current = null;
+              }
             }}
             onMouseDown={(event) => {
               if (event.button === 0) {
@@ -792,14 +936,14 @@ export function VideoPlayer() {
       </div>
 
       {/* Retro Timeline & Scrubber with Cut/Trim Region & Capture Bookmark Pins */}
-      <div className="mt-3.5 space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] font-mono font-semibold text-muted-foreground">
+      <div className="mt-3.5 space-y-2 select-none">
+        <div className="flex items-center justify-between text-xs font-mono font-bold text-muted-foreground">
           <span className="flex items-center gap-1.5 uppercase tracking-wider">
-            <Scissors className="size-3 text-signal" />
+            <Scissors className="size-3.5 text-signal" />
             <span>Timeline Scrubber</span>
             {(trimStart !== null || trimEnd !== null) && (
               <Badge variant="outline" className={cn(
-                "h-4 px-1 text-[9px] uppercase font-bold",
+                "h-5 px-1.5 text-[10px] uppercase font-bold",
                 trimMode === "trim" ? "border-success text-success" : "border-destructive text-destructive",
               )}>
                 {trimMode === "trim" ? "Trim Active" : "Cut Active"}
@@ -808,14 +952,15 @@ export function VideoPlayer() {
           </span>
           <div className="flex items-center gap-2">
             {previewTrimMode ? (
-              <span className="flex items-center gap-1 text-[10px] text-signal font-bold animate-pulse">
-                <Eye className="size-2.5" /> Preview Mode Active
+              <span className="flex items-center gap-1 text-xs text-signal font-bold animate-pulse">
+                <Eye className="size-3" /> Preview Active
               </span>
             ) : null}
-            <span>{captures.length} Bookmark Pins</span>
+            <span className="text-[11px]">{captures.length} Bookmark Pins</span>
           </div>
         </div>
 
+        {/* 40px High Touch Friendly Track */}
         <div
           ref={progressRef}
           role="slider"
@@ -825,7 +970,7 @@ export function VideoPlayer() {
           aria-label="Seek"
           tabIndex={disabled ? -1 : 0}
           className={cn(
-            "group relative h-6 cursor-pointer rounded-[var(--radius-sm)] border-2 border-border bg-secondary shadow-[1px_1px_0px_var(--color-border)] select-none overflow-hidden",
+            "group relative h-9 cursor-pointer rounded-[var(--radius-sm)] border-2 border-border bg-secondary shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)] select-none overflow-hidden touch-none",
             disabled && "pointer-events-none opacity-50",
           )}
           onMouseDown={(event) => {
@@ -836,15 +981,28 @@ export function VideoPlayer() {
             setDragging(true);
             seekFromClientX(event.touches[0]!.clientX);
           }}
+          onTouchMove={(event) => {
+            if (dragging && event.touches.length > 0) {
+              seekFromClientX(event.touches[0]!.clientX);
+            }
+          }}
+          onTouchEnd={() => setDragging(false)}
+          onTouchCancel={() => setDragging(false)}
           onKeyDown={(event) => {
             if (event.key === "ArrowLeft") seekBy(-2);
             if (event.key === "ArrowRight") seekBy(2);
           }}
         >
           {/* Timeline Tick Marks Background */}
-          <div className="absolute inset-0 flex justify-between px-1 opacity-25 pointer-events-none">
-            {Array.from({ length: 21 }).map((_, i) => (
-              <span key={i} className="h-full w-[1px] bg-border" />
+          <div className="absolute inset-0 flex justify-between px-1 opacity-30 pointer-events-none">
+            {Array.from({ length: 30 }).map((_, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "h-full w-[1px]",
+                  i % 5 === 0 ? "bg-foreground/50 w-[2px]" : "bg-border",
+                )}
+              />
             ))}
           </div>
 
@@ -859,7 +1017,7 @@ export function VideoPlayer() {
               // Trim: Highlight retained region in green/signal
               return (
                 <div
-                  className="absolute top-0 bottom-0 bg-success/20 border-x-2 border-success pointer-events-none z-10"
+                  className="absolute top-0 bottom-0 bg-success/25 border-x-2 border-success pointer-events-none z-10"
                   style={{ left: `${left}%`, width: `${width}%` }}
                 />
               );
@@ -884,7 +1042,7 @@ export function VideoPlayer() {
             style={{ width: `${progress}%` }}
           >
             {/* Scrubber Playhead Handle */}
-            <span className="absolute -right-2 top-1/2 size-4.5 -translate-y-1/2 rounded-[var(--radius-sm)] border-2 border-border bg-primary shadow-[1px_1px_0px_var(--color-border)] transition-transform group-hover:scale-110 z-30" />
+            <span className="absolute -right-2.5 top-1/2 size-5 -translate-y-1/2 rounded-[var(--radius-sm)] border-2 border-border bg-primary shadow-[2px_2px_0px_var(--color-border)] transition-transform group-hover:scale-110 z-30" />
           </div>
 
           {/* IN Marker Line & Handle */}
@@ -892,10 +1050,10 @@ export function VideoPlayer() {
             const inPct = Math.min(100, Math.max(0, (trimStart / duration) * 100));
             return (
               <div
-                className="absolute top-0 bottom-0 w-[2px] bg-primary z-20 pointer-events-none"
+                className="absolute top-0 bottom-0 w-[3px] bg-primary z-20 pointer-events-none"
                 style={{ left: `${inPct}%` }}
               >
-                <span className="absolute -top-0.5 -left-2 rounded-xs border border-border bg-primary px-1 py-0 font-mono text-[8px] font-bold text-primary-foreground">
+                <span className="absolute top-0.5 -left-2.5 rounded-xs border border-border bg-primary px-1 py-0.5 font-mono text-[9px] font-bold text-primary-foreground shadow-[1px_1px_0px_var(--color-border)]">
                   [ IN
                 </span>
               </div>
@@ -907,10 +1065,10 @@ export function VideoPlayer() {
             const outPct = Math.min(100, Math.max(0, (trimEnd / duration) * 100));
             return (
               <div
-                className="absolute top-0 bottom-0 w-[2px] bg-destructive z-20 pointer-events-none"
+                className="absolute top-0 bottom-0 w-[3px] bg-destructive z-20 pointer-events-none"
                 style={{ left: `${outPct}%` }}
               >
-                <span className="absolute -top-0.5 -right-2 rounded-xs border border-border bg-destructive px-1 py-0 font-mono text-[8px] font-bold text-white">
+                <span className="absolute bottom-0.5 -right-2.5 rounded-xs border border-border bg-destructive px-1 py-0.5 font-mono text-[9px] font-bold text-white shadow-[1px_1px_0px_var(--color-border)]">
                   OUT ]
                 </span>
               </div>
@@ -930,7 +1088,7 @@ export function VideoPlayer() {
                       e.stopPropagation();
                       jumpTo(cap.timestampSec);
                     }}
-                    className="absolute top-0 -ml-1 size-2.5 -translate-y-0.5 rounded-full border border-border bg-destructive hover:scale-150 transition-transform z-20"
+                    className="absolute top-1/2 -ml-1.5 size-3.5 -translate-y-1/2 rounded-full border-2 border-border bg-destructive hover:scale-150 transition-transform z-25 shadow-[1px_1px_0px_var(--color-border)]"
                     style={{ left: `${pinPct}%` }}
                   />
                 );
@@ -939,39 +1097,52 @@ export function VideoPlayer() {
         </div>
       </div>
 
+      {/* Touch Jog Wheel Deck (Frame-accurate tactile scrubbing) */}
+      <div className="mt-3">
+        <JogDial onStepFrame={stepFrame} disabled={disabled} />
+      </div>
+
       {/* Main Transport Deck Controls & LCD Timecode */}
-      <div className="mt-3.5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/70 p-2.5 shadow-[2px_2px_0px_var(--color-border)]">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/70 p-3 shadow-[2px_2px_0px_var(--color-border)]">
         {/* Navigation Transport Controls */}
-        <div className="flex flex-wrap items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1.5">
           <Hint label="Jump Start">
-            <Button variant="outline" size="icon-sm" disabled={disabled} onClick={() => jumpTo(0)}>
-              <ChevronsLeft />
+            <Button
+              variant="outline"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
+              disabled={disabled}
+              onClick={() => jumpTo(0)}
+            >
+              <ChevronsLeft className="size-4" />
             </Button>
           </Hint>
           <Hint label="Rewind 10s (←)">
             <Button
               variant="outline"
-              size="icon-sm"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
               disabled={disabled}
               onClick={() => {
                 seekBy(-10);
                 toast("Rewind 10s");
               }}
             >
-              <Rewind />
+              <Rewind className="size-4" />
             </Button>
           </Hint>
           <Hint label="Previous Frame (,)">
             <Button
               variant="outline"
-              size="icon-sm"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
               disabled={disabled}
               onClick={() => {
                 videoRef.current?.pause();
                 seekBy(-FRAME_STEP);
               }}
             >
-              <SkipBack />
+              <SkipBack className="size-4" />
             </Button>
           </Hint>
 
@@ -981,42 +1152,45 @@ export function VideoPlayer() {
             variant={playing ? "signal" : "default"}
             disabled={disabled}
             onClick={togglePlay}
-            className="min-w-22 gap-1.5 font-bold"
+            className="h-9 min-w-24 gap-2 font-bold touch-manipulation active:scale-95 text-xs"
           >
-            {playing ? <Pause /> : <Play />}
+            {playing ? <Pause className="size-4" /> : <Play className="size-4" />}
             {playing ? "Pause" : "Play"}
           </Button>
 
           <Hint label="Next Frame (.)">
             <Button
               variant="outline"
-              size="icon-sm"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
               disabled={disabled}
               onClick={() => {
                 videoRef.current?.pause();
                 seekBy(FRAME_STEP);
               }}
             >
-              <SkipForward />
+              <SkipForward className="size-4" />
             </Button>
           </Hint>
           <Hint label="Forward 10s (→)">
             <Button
               variant="outline"
-              size="icon-sm"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
               disabled={disabled}
               onClick={() => {
                 seekBy(10);
                 toast("Forward 10s");
               }}
             >
-              <FastForward />
+              <FastForward className="size-4" />
             </Button>
           </Hint>
           <Hint label="Jump End">
             <Button
               variant="outline"
-              size="icon-sm"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
               disabled={disabled}
               onClick={() => {
                 const el = videoRef.current;
@@ -1024,12 +1198,12 @@ export function VideoPlayer() {
                 jumpTo(Math.max(0, el.duration - 0.001));
               }}
             >
-              <ChevronsRight />
+              <ChevronsRight className="size-4" />
             </Button>
           </Hint>
 
           {/* Quick In / Out / Preview Buttons directly on Transport */}
-          <div className="ml-1 flex items-center gap-1 border-l-2 border-border/50 pl-1">
+          <div className="ml-1 flex items-center gap-1.5 border-l-2 border-border/50 pl-1.5">
             <Hint label="Mark IN Point (I)">
               <Button
                 variant={trimStart !== null ? "primary" : "outline"}
@@ -1039,7 +1213,7 @@ export function VideoPlayer() {
                   setTrimStart(current);
                   toast.success(`Marked IN @ ${formatTimePrecise(current)}`);
                 }}
-                className="h-7 px-1.5 font-mono text-[10px] font-bold"
+                className="h-9 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
               >
                 [ IN
               </Button>
@@ -1058,7 +1232,7 @@ export function VideoPlayer() {
                   setTrimEnd(current);
                   toast.success(`Marked OUT @ ${formatTimePrecise(current)}`);
                 }}
-                className="h-7 px-1.5 font-mono text-[10px] font-bold"
+                className="h-9 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
               >
                 OUT ]
               </Button>
@@ -1073,9 +1247,9 @@ export function VideoPlayer() {
                   setPreviewTrimMode(!previewTrimMode);
                   toast(previewTrimMode ? "Preview Mode: OFF" : "Preview Mode: ON (Live Skipping)");
                 }}
-                className="h-7 px-2 text-[10px] font-bold"
+                className="h-9 px-2.5 text-[11px] font-bold touch-manipulation active:scale-95"
               >
-                <Eye className="size-3 mr-1" />
+                <Eye className="size-3.5 mr-1" />
                 Preview
               </Button>
             </Hint>
@@ -1083,11 +1257,11 @@ export function VideoPlayer() {
         </div>
 
         {/* Digital LCD Timecode Box */}
-        <div className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border-2 border-border bg-theater px-3 py-1 text-center font-mono shadow-[inset_1px_1px_2px_rgba(0,0,0,0.5)]">
-          <span className="size-2 rounded-full bg-signal animate-pulse" />
-          <p className="text-xs font-bold tabular tracking-widest text-[#FCEEE2]">
+        <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border-2 border-border bg-theater px-3 py-1.5 text-center font-mono shadow-[inset_1px_1px_2px_rgba(0,0,0,0.5)]">
+          <span className="size-2.5 rounded-full bg-signal animate-pulse" />
+          <p className="text-xs sm:text-sm font-bold tabular tracking-widest text-[#FCEEE2]">
             <span>{formatTime(current, longForm)}</span>
-            <span className="text-muted-foreground mx-1">/</span>
+            <span className="text-muted-foreground mx-1.5">/</span>
             <span className="text-muted-foreground">{formatTime(duration, longForm)}</span>
           </p>
         </div>
@@ -1095,12 +1269,18 @@ export function VideoPlayer() {
         {/* Audio Volume & Fullscreen */}
         <div className="flex items-center gap-2">
           <Hint label={muted ? "Unmute (M)" : "Mute (M)"}>
-            <Button variant="outline" size="icon-sm" disabled={disabled} onClick={toggleMute}>
-              {muted || volume === 0 ? <VolumeX /> : <Volume2 />}
+            <Button
+              variant="outline"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
+              disabled={disabled}
+              onClick={toggleMute}
+            >
+              {muted || volume === 0 ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
             </Button>
           </Hint>
           <Slider
-            className="w-18"
+            className="w-20"
             min={0}
             max={1}
             step={0.05}
@@ -1117,8 +1297,14 @@ export function VideoPlayer() {
             }}
           />
           <Hint label="Fullscreen (F)">
-            <Button variant="outline" size="icon-sm" disabled={disabled} onClick={fullscreen}>
-              <Maximize />
+            <Button
+              variant="outline"
+              size="sm"
+              className="size-9 p-0 touch-manipulation active:scale-95"
+              disabled={disabled}
+              onClick={fullscreen}
+            >
+              <Maximize className="size-4" />
             </Button>
           </Hint>
         </div>
@@ -1178,16 +1364,16 @@ export function VideoPlayer() {
         >
           <div className="space-y-3">
             {/* Capture Action Bar (Snap, Burst, Copy) */}
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
               <Button
                 type="button"
                 variant="success"
                 size="default"
                 disabled={disabled}
                 onClick={() => void capture()}
-                className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+                className="h-11 gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] text-sm touch-manipulation active:scale-95"
               >
-                <Camera className="size-4" />
+                <Camera className="size-4.5" />
                 Snap Frame (S)
               </Button>
 
@@ -1197,10 +1383,10 @@ export function VideoPlayer() {
                 size="default"
                 disabled={disabled}
                 onClick={() => void burstCapture()}
-                className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+                className="h-11 gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] text-sm touch-manipulation active:scale-95"
                 title="Capture 3 frames in quick succession"
               >
-                <Layers className="size-4" />
+                <Layers className="size-4.5" />
                 Burst 3× (Shift+S)
               </Button>
 
@@ -1210,21 +1396,21 @@ export function VideoPlayer() {
                 size="default"
                 disabled={disabled}
                 onClick={() => void copyFrame()}
-                className="gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)]"
+                className="h-11 gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] text-sm touch-manipulation active:scale-95"
               >
-                <Copy className="size-4" />
+                <Copy className="size-4.5" />
                 Copy Still (C)
               </Button>
             </div>
 
             {/* Speed Selector & Direct Jump Row */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/50 pt-2.5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/50 pt-3">
               {/* Speed Selector Chips */}
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Deck Speed:
                 </span>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1.5">
                   {PLAYBACK_RATES.map((r) => (
                     <Button
                       key={r}
@@ -1232,7 +1418,7 @@ export function VideoPlayer() {
                       variant={rate === r ? "signal" : "outline"}
                       disabled={disabled}
                       onClick={() => applyRate(r)}
-                      className="h-6 min-w-9 px-1.5 text-[10px] font-bold"
+                      className="h-8 min-w-10 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"
                     >
                       {r}×
                     </Button>
@@ -1241,11 +1427,11 @@ export function VideoPlayer() {
               </div>
 
               {/* Jump To Direct Timecode */}
-              <div className="flex items-center gap-1.5">
-                <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Jump TC:
                 </span>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   <TimeField
                     value={hours}
                     placeholder="00"
@@ -1272,16 +1458,17 @@ export function VideoPlayer() {
                     onChange={setSeconds}
                     onEnter={gotoTyped}
                   />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    disabled={disabled}
+                    onClick={gotoTyped}
+                    className="h-8 px-2.5 text-xs font-bold font-mono touch-manipulation active:scale-95 ml-1"
+                  >
+                    Go
+                  </Button>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2 text-[10px]"
-                  disabled={disabled}
-                  onClick={gotoTyped}
-                >
-                  Go
-                </Button>
               </div>
             </div>
 

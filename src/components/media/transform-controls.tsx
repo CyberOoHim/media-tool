@@ -2,7 +2,9 @@ import {
   Crop,
   FlipHorizontal,
   FlipVertical,
+  Minus,
   Move,
+  Plus,
   RotateCcw,
   RotateCw,
   Sparkles,
@@ -71,30 +73,30 @@ export function TransformControls({
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 p-2.5 shadow-[2px_2px_0px_var(--color-border)]",
+        "rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 p-3 shadow-[2px_2px_0px_var(--color-border)] select-none",
         disabled && "pointer-events-none opacity-40",
       )}
     >
       {/* Header with Active Indicator and Reset Button */}
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-          <Sparkles className="size-3.5 text-signal" />
+          <Sparkles className="size-4 text-signal" />
           <span>{title}</span>
           {isActive ? (
-            <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
+            <Badge variant="signal" className="px-1.5 py-0.5 text-[9px] font-bold">
               MODIFIED
             </Badge>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           {bakeToggle ? (
             <Hint label="Bake zoom, rotate, flip & crop directly into captured still">
               <Button
                 type="button"
                 size="sm"
                 variant={bakeToggle.enabled ? "signal" : "outline"}
-                className="h-6 px-1.5 text-[9px] font-bold"
+                className="h-8 px-2.5 text-[10px] font-bold touch-manipulation"
                 onClick={() => bakeToggle.onToggle(!bakeToggle.enabled)}
               >
                 Bake to Snap: {bakeToggle.enabled ? "ON" : "OFF"}
@@ -104,41 +106,41 @@ export function TransformControls({
 
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             size="sm"
-            className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+            className="h-8 px-2.5 text-[11px] font-bold text-muted-foreground hover:text-foreground touch-manipulation"
             onClick={onReset}
             disabled={!isActive}
           >
-            <RotateCcw className="size-3 mr-1" />
-            Reset
+            <RotateCcw className="size-3.5 mr-1" />
+            Reset All
           </Button>
         </div>
       </div>
 
       {/* Main Controls Grid */}
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {/* 1. Zoom Control */}
-        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-2 space-y-1.5">
-          <div className="flex items-center justify-between text-[10px] font-mono font-bold">
-            <span className="text-muted-foreground flex items-center gap-1">
-              <ZoomIn className="size-3" /> Zoom
+        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-3 space-y-2">
+          <div className="flex items-center justify-between text-xs font-mono font-bold">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <ZoomIn className="size-3.5" /> Zoom
             </span>
-            <span className="tabular text-foreground">
+            <span className="tabular text-foreground font-bold text-xs">
               {Math.round(transform.zoom * 100)}%
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Hint label="Zoom Out (-)">
               <Button
                 type="button"
                 variant="outline"
-                size="icon-sm"
-                className="size-6"
+                size="sm"
+                className="size-9 p-0 touch-manipulation active:scale-95 shrink-0"
                 onClick={() => onChange({ zoom: clampZoom(transform.zoom - 0.2) })}
               >
-                <ZoomOut className="size-3" />
+                <ZoomOut className="size-4" />
               </Button>
             </Hint>
 
@@ -155,23 +157,24 @@ export function TransformControls({
               <Button
                 type="button"
                 variant="outline"
-                size="icon-sm"
-                className="size-6"
+                size="sm"
+                className="size-9 p-0 touch-manipulation active:scale-95 shrink-0"
                 onClick={() => onChange({ zoom: clampZoom(transform.zoom + 0.2) })}
               >
-                <ZoomIn className="size-3" />
+                <ZoomIn className="size-4" />
               </Button>
             </Hint>
           </div>
 
-          <div className="flex justify-between gap-1 pt-0.5">
+          {/* Quick Zoom Touch Pills */}
+          <div className="grid grid-cols-4 gap-1.5 pt-1">
             {[1, 1.5, 2, 3].map((z) => (
               <Button
                 key={z}
                 type="button"
                 variant={transform.zoom === z ? "signal" : "outline"}
                 size="sm"
-                className="h-5 flex-1 px-0 text-[8px] font-mono font-bold"
+                className="h-7 px-0 text-[10px] font-mono font-bold touch-manipulation active:scale-95"
                 onClick={() => onChange({ zoom: z })}
               >
                 {z}×
@@ -181,76 +184,78 @@ export function TransformControls({
         </div>
 
         {/* 2. Pan Offset Controls */}
-        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-2 space-y-1.5">
-          <div className="flex items-center justify-between text-[10px] font-mono font-bold">
-            <span className="text-muted-foreground flex items-center gap-1">
-              <Move className="size-3" /> Pan Offset
+        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-3 space-y-2">
+          <div className="flex items-center justify-between text-xs font-mono font-bold">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <Move className="size-3.5" /> Pan Offset
             </span>
-            <span className="tabular text-foreground text-[9px]">
-              X:{Math.round(transform.panX)}% Y:{Math.round(transform.panY)}%
+            <span className="tabular text-foreground text-[10px] font-bold">
+              X:{Math.round(transform.panX)}% · Y:{Math.round(transform.panY)}%
             </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-1 text-[9px] font-mono">
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground">X:</span>
+          <div className="space-y-1.5 text-[10px] font-mono">
+            <div className="flex items-center gap-2">
+              <span className="w-3 text-muted-foreground font-bold">X:</span>
               <Slider
                 min={-100}
                 max={100}
                 step={1}
                 value={[Math.round(transform.panX)]}
                 onValueChange={([v]) => onChange({ panX: clampPan(v ?? 0) })}
+                className="flex-1"
               />
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-muted-foreground">Y:</span>
+            <div className="flex items-center gap-2">
+              <span className="w-3 text-muted-foreground font-bold">Y:</span>
               <Slider
                 min={-100}
                 max={100}
                 step={1}
                 value={[Math.round(transform.panY)]}
                 onValueChange={([v]) => onChange({ panY: clampPan(v ?? 0) })}
+                className="flex-1"
               />
             </div>
           </div>
 
-          <div className="flex justify-between items-center pt-0.5">
+          <div className="pt-0.5">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-5 w-full text-[8px] font-mono font-bold"
+              className="h-7 w-full text-[10px] font-mono font-bold touch-manipulation active:scale-95"
               onClick={() => onChange({ panX: 0, panY: 0 })}
               disabled={transform.panX === 0 && transform.panY === 0}
             >
-              Center Viewport
+              Center Viewport (0, 0)
             </Button>
           </div>
         </div>
 
         {/* 3. Rotate & Orientation Controls */}
-        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-2 space-y-1.5">
-          <div className="flex items-center justify-between text-[10px] font-mono font-bold">
-            <span className="text-muted-foreground flex items-center gap-1">
-              <RotateCw className="size-3" /> Rotate Angle
+        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-3 space-y-2">
+          <div className="flex items-center justify-between text-xs font-mono font-bold">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <RotateCw className="size-3.5" /> Rotation
             </span>
-            <span className="tabular text-foreground">
+            <span className="tabular text-foreground font-bold text-xs">
               {Math.round(normalizeRotation(transform.rotation)) > 0
                 ? `+${Math.round(normalizeRotation(transform.rotation))}°`
                 : `${Math.round(normalizeRotation(transform.rotation))}°`}
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             <Hint label="Rotate 90° CCW">
               <Button
                 type="button"
                 variant="outline"
-                size="icon-sm"
-                className="size-6"
+                size="sm"
+                className="size-9 p-0 touch-manipulation active:scale-95 shrink-0"
                 onClick={() => onChange({ rotation: rotateCounterClockwise(transform.rotation) })}
               >
-                <RotateCcw className="size-3" />
+                <RotateCcw className="size-4" />
               </Button>
             </Hint>
 
@@ -267,23 +272,23 @@ export function TransformControls({
               <Button
                 type="button"
                 variant="outline"
-                size="icon-sm"
-                className="size-6"
+                size="sm"
+                className="size-9 p-0 touch-manipulation active:scale-95 shrink-0"
                 onClick={() => onChange({ rotation: rotateClockwise(transform.rotation) })}
               >
-                <RotateCw className="size-3" />
+                <RotateCw className="size-4" />
               </Button>
             </Hint>
           </div>
 
-          <div className="flex justify-between gap-1 pt-0.5">
+          <div className="grid grid-cols-4 gap-1.5 pt-1">
             {[-180, -90, 90, 180].map((deg) => (
               <Button
                 key={deg}
                 type="button"
                 variant={Math.round(normalizeRotation(transform.rotation)) === deg ? "signal" : "outline"}
                 size="sm"
-                className="h-5 flex-1 px-0 text-[8px] font-mono font-bold"
+                className="h-7 px-0 text-[10px] font-mono font-bold touch-manipulation active:scale-95"
                 onClick={() => onChange({ rotation: deg })}
               >
                 {deg > 0 ? `+${deg}°` : `${deg}°`}
@@ -293,12 +298,12 @@ export function TransformControls({
         </div>
 
         {/* 4. Flip / Mirror Controls */}
-        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-2 space-y-1.5">
-          <div className="flex items-center justify-between text-[10px] font-mono font-bold">
-            <span className="text-muted-foreground flex items-center gap-1">
-              <FlipHorizontal className="size-3" /> Flip & Mirror
+        <div className="rounded-[var(--radius-sm)] border border-border bg-card p-3 space-y-2">
+          <div className="flex items-center justify-between text-xs font-mono font-bold">
+            <span className="text-muted-foreground flex items-center gap-1.5">
+              <FlipHorizontal className="size-3.5" /> Flip & Mirror
             </span>
-            <span className="text-[9px] text-muted-foreground font-mono">
+            <span className="text-[10px] text-muted-foreground font-mono font-bold">
               {transform.flipH && transform.flipV
                 ? "H+V"
                 : transform.flipH
@@ -309,16 +314,16 @@ export function TransformControls({
             </span>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="grid grid-cols-2 gap-2">
             <Hint label="Flip Horizontal / Mirror (H)">
               <Button
                 type="button"
                 variant={transform.flipH ? "signal" : "outline"}
                 size="sm"
-                className="h-6 flex-1 text-[9px] font-mono font-bold gap-1"
+                className="h-9 text-[11px] font-mono font-bold gap-1.5 touch-manipulation active:scale-95"
                 onClick={() => onChange({ flipH: !transform.flipH })}
               >
-                <FlipHorizontal className="size-3" />
+                <FlipHorizontal className="size-3.5" />
                 Flip H
               </Button>
             </Hint>
@@ -328,21 +333,21 @@ export function TransformControls({
                 type="button"
                 variant={transform.flipV ? "signal" : "outline"}
                 size="sm"
-                className="h-6 flex-1 text-[9px] font-mono font-bold gap-1"
+                className="h-9 text-[11px] font-mono font-bold gap-1.5 touch-manipulation active:scale-95"
                 onClick={() => onChange({ flipV: !transform.flipV })}
               >
-                <FlipVertical className="size-3" />
+                <FlipVertical className="size-3.5" />
                 Flip V
               </Button>
             </Hint>
           </div>
 
-          <div className="flex justify-between items-center pt-0.5">
+          <div className="pt-0.5">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="h-5 w-full text-[8px] font-mono font-bold"
+              className="h-7 w-full text-[10px] font-mono font-bold touch-manipulation active:scale-95"
               onClick={() => onChange({ flipH: false, flipV: false })}
               disabled={!transform.flipH && !transform.flipV}
             >
@@ -354,17 +359,17 @@ export function TransformControls({
 
       {/* 5. Crop / Aspect Framing Guide Presets */}
       {showCropPresets ? (
-        <div className="mt-2.5 pt-2 border-t border-border/40">
-          <div className="mb-1 flex items-center justify-between">
-            <Label className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-              <Crop className="size-3 text-signal" />
-              Crop / Aspect Framing:
+        <div className="mt-3 pt-3 border-t border-border/40">
+          <div className="mb-2 flex items-center justify-between">
+            <Label className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Crop className="size-3.5 text-signal" />
+              Crop / Aspect Framing Presets:
             </Label>
-            <span className="font-mono text-[10px] font-bold text-primary">
+            <span className="font-mono text-xs font-bold text-primary">
               {CROP_PRESETS.find((p) => p.id === transform.cropPreset)?.label}
             </span>
           </div>
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             {QUICK_ASPECTS.map((asp) => {
               const active = transform.cropPreset === asp.id;
               return (
@@ -374,7 +379,7 @@ export function TransformControls({
                   size="sm"
                   variant={active ? "primary" : "outline"}
                   onClick={() => onChange({ cropPreset: asp.id })}
-                  className="h-6 px-2 text-[9px] font-bold font-mono"
+                  className="h-8 px-2.5 text-[11px] font-bold font-mono touch-manipulation active:scale-95"
                 >
                   {asp.label}
                 </Button>
@@ -382,39 +387,98 @@ export function TransformControls({
             })}
           </div>
 
-          {/* Custom Width x Height Inputs */}
+          {/* Custom Width x Height Inputs with Touch Steppers */}
           {transform.cropPreset === "custom" ? (
-            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--radius-sm)] border border-border bg-card p-2">
-              <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground">
+            <div className="mt-2.5 flex flex-wrap items-center gap-3 rounded-[var(--radius-sm)] border border-border bg-card p-3">
+              <span className="font-mono text-xs font-bold uppercase text-muted-foreground">
                 Custom Dimensions:
               </span>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="number"
-                  min={50}
-                  max={4096}
-                  placeholder="Width"
-                  value={transform.customWidth ?? ""}
-                  onChange={(e) => {
-                    const val = Number.parseInt(e.target.value, 10);
-                    onChange({ customWidth: Number.isNaN(val) ? undefined : val });
-                  }}
-                  className="h-6.5 w-20 font-mono text-xs"
-                />
-                <span className="text-xs font-bold text-foreground">×</span>
-                <Input
-                  type="number"
-                  min={50}
-                  max={4096}
-                  placeholder="Height"
-                  value={transform.customHeight ?? ""}
-                  onChange={(e) => {
-                    const val = Number.parseInt(e.target.value, 10);
-                    onChange({ customHeight: Number.isNaN(val) ? undefined : val });
-                  }}
-                  className="h-6.5 w-20 font-mono text-xs"
-                />
-                <span className="font-mono text-[10px] text-muted-foreground">px</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Width stepper */}
+                <div className="flex items-center rounded-[var(--radius-sm)] border border-border bg-secondary p-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0 touch-manipulation"
+                    onClick={() => {
+                      const cur = transform.customWidth ?? 1920;
+                      onChange({ customWidth: Math.max(50, cur - 10) });
+                    }}
+                  >
+                    <Minus className="size-3" />
+                  </Button>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={50}
+                    max={4096}
+                    placeholder="Width"
+                    value={transform.customWidth ?? ""}
+                    onChange={(e) => {
+                      const val = Number.parseInt(e.target.value, 10);
+                      onChange({ customWidth: Number.isNaN(val) ? undefined : val });
+                    }}
+                    className="h-7 w-20 border-0 bg-transparent text-center font-mono text-xs font-bold"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0 touch-manipulation"
+                    onClick={() => {
+                      const cur = transform.customWidth ?? 1920;
+                      onChange({ customWidth: Math.min(4096, cur + 10) });
+                    }}
+                  >
+                    <Plus className="size-3" />
+                  </Button>
+                </div>
+
+                <span className="text-sm font-bold text-foreground">×</span>
+
+                {/* Height stepper */}
+                <div className="flex items-center rounded-[var(--radius-sm)] border border-border bg-secondary p-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0 touch-manipulation"
+                    onClick={() => {
+                      const cur = transform.customHeight ?? 1080;
+                      onChange({ customHeight: Math.max(50, cur - 10) });
+                    }}
+                  >
+                    <Minus className="size-3" />
+                  </Button>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={50}
+                    max={4096}
+                    placeholder="Height"
+                    value={transform.customHeight ?? ""}
+                    onChange={(e) => {
+                      const val = Number.parseInt(e.target.value, 10);
+                      onChange({ customHeight: Number.isNaN(val) ? undefined : val });
+                    }}
+                    className="h-7 w-20 border-0 bg-transparent text-center font-mono text-xs font-bold"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="size-7 p-0 touch-manipulation"
+                    onClick={() => {
+                      const cur = transform.customHeight ?? 1080;
+                      onChange({ customHeight: Math.min(4096, cur + 10) });
+                    }}
+                  >
+                    <Plus className="size-3" />
+                  </Button>
+                </div>
+
+                <span className="font-mono text-xs text-muted-foreground font-bold">px</span>
               </div>
             </div>
           ) : null}

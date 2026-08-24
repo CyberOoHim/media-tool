@@ -242,12 +242,12 @@ export function CaptureStrip() {
                     </button>
 
                     {/* Cut / Trim Marker Buttons for Screenshot */}
-                    <div className="mt-1.5 grid grid-cols-2 gap-1 font-mono text-[9px]">
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 font-mono text-[10px]">
                       <Button
                         type="button"
                         variant={isTrimStart ? "primary" : "secondary"}
                         size="sm"
-                        className="h-6 px-1 text-[9px] font-bold"
+                        className="h-8 px-1.5 text-[10px] font-bold touch-manipulation active:scale-95"
                         onClick={() => {
                           const res = applyScreenshotToTrim(item.id, "start");
                           const inclText = includeScreenshotFrame
@@ -267,7 +267,7 @@ export function CaptureStrip() {
                         variant={isTrimEnd ? "destructive" : "secondary"}
                         size="sm"
                         className={cn(
-                          "h-6 px-1 text-[9px] font-bold",
+                          "h-8 px-1.5 text-[10px] font-bold touch-manipulation active:scale-95",
                           isTrimEnd && "text-white",
                         )}
                         onClick={() => {
@@ -286,26 +286,26 @@ export function CaptureStrip() {
                     </div>
 
                     {/* Action Bar */}
-                    <div className="mt-1 flex gap-1.5">
+                    <div className="mt-1.5 flex gap-1.5">
                       <SaveLink
                         blob={item.blob}
                         filename={item.fileName}
                         variant="outline"
                         size="sm"
-                        className="h-5 flex-1 px-1 text-[9px]"
+                        className="h-7 flex-1 px-1.5 text-[10px] font-bold touch-manipulation active:scale-95"
                       >
-                        <Download className="size-2.5 mr-0.5" />
+                        <Download className="size-3 mr-1" />
                         Save Still
                       </SaveLink>
                       <Button
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-5 px-1.5 text-destructive hover:bg-destructive hover:text-white"
+                        className="h-7 px-2 text-destructive hover:bg-destructive hover:text-white touch-manipulation active:scale-95"
                         onClick={() => removeCapture(item.id)}
                         title="Delete capture"
                       >
-                        <Trash2 className="size-2.5" />
+                        <Trash2 className="size-3.5" />
                       </Button>
                     </div>
                   </li>

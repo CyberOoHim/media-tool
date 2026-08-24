@@ -255,15 +255,15 @@ export function TrimControls({
         {/* IN Point (Start) Box */}
         <div
           className={cn(
-            "rounded-[var(--radius-sm)] border-2 p-2.5 transition-all",
+            "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
             trimStart !== null
               ? "border-signal bg-signal/5 shadow-[2px_2px_0px_var(--color-signal)]"
               : "border-border bg-secondary/30",
           )}
         >
-          <div className="flex items-center justify-between text-[11px] font-mono">
-            <span className="flex items-center gap-1 font-bold text-foreground">
-              <span className="rounded-xs bg-primary px-1 py-0.2 font-mono text-[9px] text-primary-foreground font-bold">
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="flex items-center gap-1.5 font-bold text-foreground">
+              <span className="rounded-xs bg-primary px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground font-bold">
                 [ IN
               </span>
               Start Point
@@ -273,27 +273,27 @@ export function TrimControls({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-destructive"
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
                 onClick={() => setTrimStart(null)}
               >
-                <X className="size-2.5 mr-0.5" /> Clear
+                <X className="size-3 mr-1" /> Clear
               </Button>
             ) : (
-              <span className="text-[10px] text-muted-foreground">00:00.000 (Start of Video)</span>
+              <span className="text-[11px] text-muted-foreground">00:00.000 (Start of Video)</span>
             )}
           </div>
 
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <div className="font-mono text-sm font-bold tracking-widest text-foreground">
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="font-mono text-base font-bold tracking-widest text-foreground">
               {trimStart !== null ? formatTimePrecise(trimStart) : "00:00.000"}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               {trimStart !== null ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-6 px-1.5 text-[10px]"
+                  className="h-8 px-2.5 text-xs touch-manipulation active:scale-95"
                   onClick={() => onSeek(trimStart)}
                   title="Jump playhead to IN point"
                 >
@@ -306,7 +306,7 @@ export function TrimControls({
                 size="sm"
                 disabled={disabled}
                 onClick={handleMarkIn}
-                className="h-6 px-2 text-[10px] font-bold"
+                className="h-8 px-3 text-xs font-bold touch-manipulation active:scale-95"
               >
                 Mark IN (Current)
               </Button>
@@ -317,15 +317,15 @@ export function TrimControls({
         {/* OUT Point (End) Box */}
         <div
           className={cn(
-            "rounded-[var(--radius-sm)] border-2 p-2.5 transition-all",
+            "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
             trimEnd !== null
               ? "border-destructive bg-destructive/5 shadow-[2px_2px_0px_var(--color-destructive)]"
               : "border-border bg-secondary/30",
           )}
         >
-          <div className="flex items-center justify-between text-[11px] font-mono">
-            <span className="flex items-center gap-1 font-bold text-foreground">
-              <span className="rounded-xs bg-destructive px-1 py-0.2 font-mono text-[9px] text-white font-bold">
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="flex items-center gap-1.5 font-bold text-foreground">
+              <span className="rounded-xs bg-destructive px-1.5 py-0.5 font-mono text-[10px] text-white font-bold">
                 OUT ]
               </span>
               End Point
@@ -335,33 +335,33 @@ export function TrimControls({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-destructive"
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-destructive touch-manipulation"
                 onClick={() => setTrimEnd(null)}
               >
-                <X className="size-2.5 mr-0.5" /> Clear
+                <X className="size-3 mr-1" /> Clear
               </Button>
             ) : (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[11px] text-muted-foreground">
                 {durationSec > 0 ? formatTimePrecise(durationSec) : "--:--"} (End of Video)
               </span>
             )}
           </div>
 
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <div className="font-mono text-sm font-bold tracking-widest text-foreground">
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="font-mono text-base font-bold tracking-widest text-foreground">
               {trimEnd !== null
                 ? formatTimePrecise(trimEnd)
                 : durationSec > 0
                   ? formatTimePrecise(durationSec)
                   : "--:--.---"}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1.5">
               {trimEnd !== null ? (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-6 px-1.5 text-[10px]"
+                  className="h-8 px-2.5 text-xs touch-manipulation active:scale-95"
                   onClick={() => onSeek(trimEnd)}
                   title="Jump playhead to OUT point"
                 >
@@ -374,7 +374,7 @@ export function TrimControls({
                 size="sm"
                 disabled={disabled}
                 onClick={handleMarkOut}
-                className="h-6 px-2 text-[10px] font-bold"
+                className="h-8 px-3 text-xs font-bold touch-manipulation active:scale-95"
               >
                 Mark OUT (Current)
               </Button>
