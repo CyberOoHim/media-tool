@@ -47,7 +47,7 @@ function RootDocument() {
           }}
         />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         <PreviewHostBridge />
         <TooltipProvider>
           <Outlet />

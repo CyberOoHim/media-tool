@@ -10,6 +10,7 @@ import {
   Pause,
   Play,
   Rewind,
+  RotateCcw,
   Scissors,
   SkipBack,
   SkipForward,
