@@ -1,6 +1,6 @@
 # Media Tool
 
-Local **video player**, **frame capture**, and **image bench** — crop, convert, and compress stills to a size budget. Everything runs in the browser. Nothing is uploaded.
+Local **video**, **frame capture**, and **image bench** — crop, convert, and compress stills to a size budget. Everything runs in the browser. Nothing is uploaded.
 
 Original HTML prototypes live in [`refs/`](./refs/) and were rebuilt here as a modular TanStack Start app.
 
@@ -8,13 +8,13 @@ Original HTML prototypes live in [`refs/`](./refs/) and were rebuilt here as a m
 
 | Route | What |
 | --- | --- |
-| `/` | Combined workspace: player + bench + capture strip |
-| `/player` | Video player and captures |
+| `/` | Combined workspace: video + bench + capture strip |
+| `/player` | Video and captures |
 | `/bench` | Image optimizer |
 
 ## Features
 
-**Player**
+**Video**
 
 - Drag-drop or pick a local video
 - Play / pause, ±10s, jump to start / end
@@ -59,7 +59,7 @@ In the repo: **Settings → Pages → Source = GitHub Actions**.
 ## Layout (for contributors)
 
 ```
-src/features/player   Video player, capture, keyboard
+src/features/player   Video, capture, keyboard
 src/features/bench    Image optimizer UI
 src/features/strip    Session capture gallery
 src/features/media    Shared types, store, compress / crop / clipboard

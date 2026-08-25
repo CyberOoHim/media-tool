@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { to: "/", label: "Studio Deck", icon: LayoutGrid },
-  { to: "/player", label: "Player Solo", icon: Film },
+  { to: "/player", label: "Video Solo", icon: Film },
   { to: "/audio", label: "Audio Solo", icon: Music },
   { to: "/bench", label: "Optimizer Solo", icon: ImageIcon },
 ] as const;
@@ -54,7 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
               </div>
               <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground sm:block">
-                Player · Audio · Stills · Optimizer
+                Video · Audio · Stills · Optimizer
               </span>
             </div>
           </Link>

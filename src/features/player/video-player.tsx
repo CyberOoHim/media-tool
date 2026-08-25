@@ -567,7 +567,7 @@ export function VideoPlayer() {
 
   return (
     <Panel
-      title="Deck-1 // Video Player"
+      title="Deck-1 // Video"
       status={deckStatus}
       statusVariant={deckStatusVariant}
       action={

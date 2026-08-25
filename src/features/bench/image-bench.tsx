@@ -573,7 +573,7 @@ export function ImageBench() {
             <PreviewCard
               title="Raw Source Frame"
               src={source?.objectUrl}
-              empty="Drop image or press S on player"
+              empty="Drop image or press S on video"
               dimensions={source && sourceMeta ? `${source.width} × ${source.height} px (${sourceMeta.megapixelsFormatted} · ${sourceMeta.bitsPerPixelFormatted})` : "—"}
               size={source ? formatFileSize(source.fileSize) : "—"}
               tag="SOURCE"

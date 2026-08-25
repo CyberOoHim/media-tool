@@ -68,7 +68,7 @@ export function KeyboardShortcutsDialog() {
           {/* Body */}
           <div className="p-4">
             <p className="mb-3 font-mono text-xs text-muted-foreground">
-              Master the player with these physical deck shortcuts:
+              Master video with these physical deck shortcuts:
             </p>
             <div className="space-y-2">
               {SHORTCUTS.map((s) => (

@@ -19,7 +19,7 @@ export const Route = createRootRoute({
       { title: APP_NAME },
       {
         name: "description",
-        content: "Local video player, frame capture, and image optimizer. Everything stays in your browser.",
+        content: "Local video, frame capture, and image optimizer. Everything stays in your browser.",
       },
       { name: "theme-color", content: "#12100f" },
     ],
