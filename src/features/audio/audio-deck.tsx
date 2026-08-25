@@ -1,11 +1,14 @@
 import {
+  Bookmark,
   FastForward,
   Music,
   Pause,
   Play,
   Rewind,
+  Scissors,
   SkipBack,
   SkipForward,
+  SlidersHorizontal,
   Upload,
   Volume2,
   VolumeX,
@@ -634,7 +637,7 @@ export function AudioDeck() {
           {/* Precision Hardware Jog Dial */}
           <div className="flex items-center gap-2">
             <JogDial
-              onStep={(frames) => stepMs(frames * 33.33)}
+              onStepFrame={(frames) => stepMs(frames * 33.33)}
               disabled={!audio}
             />
             {/* Step buttons */}
@@ -825,7 +828,7 @@ export function AudioDeck() {
         <DeckExpander
           id="deck-audio-cut-trim"
           title="Deck // Cut, Trim & Multi-Format Audio Exporter"
-          icon={Scissors}
+          icon={<Scissors className="size-3.5" />}
           defaultOpen={true}
         >
           <AudioTrimControls />
@@ -835,7 +838,7 @@ export function AudioDeck() {
         <DeckExpander
           id="deck-audio-eq-dsp"
           title="Deck // 5-Band EQ, DSP Filters & Tone Rack"
-          icon={Sliders}
+          icon={<SlidersHorizontal className="size-3.5" />}
           defaultOpen={true}
         >
           <AudioDspControls />
@@ -845,7 +848,7 @@ export function AudioDeck() {
         <DeckExpander
           id="deck-audio-cue-points"
           title="Deck // Cue Points & Audio Slices"
-          icon={Bookmark}
+          icon={<Bookmark className="size-3.5" />}
           defaultOpen={true}
         >
           <AudioCueControls onSeek={seekTo} />

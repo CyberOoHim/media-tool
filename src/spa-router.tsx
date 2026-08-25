@@ -2,6 +2,7 @@ import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { createRootRoute, createRoute, createRouter, Outlet } from "@tanstack/react-router";
+import { AudioPage } from "./routes/audio";
 import { BenchPage } from "./routes/bench";
 import { WorkspacePage } from "./routes/index";
 import { PlayerPage } from "./routes/player";
@@ -38,13 +39,19 @@ const playerRoute = createRoute({
   component: PlayerPage,
 });
 
+const audioRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/audio",
+  component: AudioPage,
+});
+
 const benchRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/bench",
   component: BenchPage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, playerRoute, benchRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, playerRoute, audioRoute, benchRoute]);
 
 export function getSpaRouter() {
   return createRouter({
