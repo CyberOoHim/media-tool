@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AudioRouteImport } from './routes/audio'
 import { Route as BenchRouteImport } from './routes/bench'
 import { Route as PlayerRouteImport } from './routes/player'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AudioRoute = AudioRouteImport.update({
+  id: '/audio',
+  path: '/audio',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BenchRoute = BenchRouteImport.update({
@@ -31,30 +37,34 @@ const PlayerRoute = PlayerRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/audio': typeof AudioRoute
   '/bench': typeof BenchRoute
   '/player': typeof PlayerRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/audio': typeof AudioRoute
   '/bench': typeof BenchRoute
   '/player': typeof PlayerRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/audio': typeof AudioRoute
   '/bench': typeof BenchRoute
   '/player': typeof PlayerRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/bench' | '/player'
+  fullPaths: '/' | '/audio' | '/bench' | '/player'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/bench' | '/player'
-  id: '__root__' | '/' | '/bench' | '/player'
+  to: '/' | '/audio' | '/bench' | '/player'
+  id: '__root__' | '/' | '/audio' | '/bench' | '/player'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AudioRoute: typeof AudioRoute
   BenchRoute: typeof BenchRoute
   PlayerRoute: typeof PlayerRoute
 }
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/audio': {
+      id: '/audio'
+      path: '/audio'
+      fullPath: '/audio'
+      preLoaderRoute: typeof AudioRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bench': {
@@ -87,6 +104,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AudioRoute: AudioRoute,
   BenchRoute: BenchRoute,
   PlayerRoute: PlayerRoute,
 }
