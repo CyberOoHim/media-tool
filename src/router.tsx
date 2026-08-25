@@ -15,3 +15,9 @@ export function getRouter() {
     defaultErrorComponent: AppErrorComponent,
   });
 }
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: ReturnType<typeof getRouter>;
+  }
+}
