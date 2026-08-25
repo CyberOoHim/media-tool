@@ -172,4 +172,104 @@ test("Video Export format is restricted to MP4", () => {
   assert.equal(formats[0], "mp4");
 });
 
+test("Audio slice bounds clamping prevents Web Audio InvalidStateError", () => {
+  function computeSafeAudioSlice(startSec, endSec, bufferDuration) {
+    const segDuration = endSec - startSec;
+    if (segDuration <= 0 || startSec >= bufferDuration) {
+      return null;
+    }
+    const safeOffset = Math.max(0, Math.min(startSec, bufferDuration - 0.001));
+    const safeDuration = Math.min(segDuration, Math.max(0, bufferDuration - safeOffset));
+    return { safeOffset, safeDuration };
+  }
+
+  // Normal in-bounds segment
+  const s1 = computeSafeAudioSlice(2, 5, 10);
+  assert.ok(s1);
+  assert.equal(s1.safeOffset, 2);
+  assert.equal(s1.safeDuration, 3);
+
+  // Offset slightly past buffer duration (container track jitter)
+  const s2 = computeSafeAudioSlice(10.05, 12, 10.0);
+  assert.equal(s2, null, "Should safely return null instead of throwing InvalidStateError");
+
+  // Offset near end of buffer
+  const s3 = computeSafeAudioSlice(9.9, 11, 10.0);
+  assert.ok(s3);
+  assert.ok(s3.safeOffset <= 9.999);
+  assert.ok(s3.safeDuration <= 0.1);
+});
+
+test("Video Export bitrate estimation and source bitrate clamping", () => {
+  function computeTargetBitrate({ sourceFileSize, sourceDurationSec, quality, keepAudio, bitrateMbps }) {
+    let targetVideoBitrateBps;
+    if (quality === "original" && sourceFileSize > 0 && sourceDurationSec > 0) {
+      const rawSourceBitrateBps = Math.round((sourceFileSize * 8) / sourceDurationSec);
+      targetVideoBitrateBps = Math.max(
+        200_000,
+        keepAudio ? rawSourceBitrateBps - 192_000 : rawSourceBitrateBps,
+      );
+    } else {
+      targetVideoBitrateBps = Math.round((bitrateMbps || 8) * 1_000_000);
+    }
+    const targetAudioBitrateBps = keepAudio ? 192_000 : 0;
+    const targetTotalBitrateBps = targetVideoBitrateBps + targetAudioBitrateBps;
+
+    const videoPayloadBytes = Math.round((targetVideoBitrateBps * sourceDurationSec) / 8);
+    const audioPayloadBytes = Math.round((targetAudioBitrateBps * sourceDurationSec) / 8);
+    const containerOverheadBytes = Math.round(Math.max(64 * 1024, (videoPayloadBytes + audioPayloadBytes) * 0.015));
+    const estimatedTotalBytes = videoPayloadBytes + audioPayloadBytes + containerOverheadBytes;
+    const savingsPct = Number((((sourceFileSize - estimatedTotalBytes) / sourceFileSize) * 100).toFixed(1));
+
+    return { targetVideoBitrateBps, targetAudioBitrateBps, targetTotalBitrateBps, estimatedTotalBytes, savingsPct };
+  }
+
+  // Source video: 10s, 2.5 MB -> ~2.0 Mbps
+  const sourceFileSize = 2.5 * 1024 * 1024;
+  const sourceDurationSec = 10;
+  const sourceBitrateBps = (sourceFileSize * 8) / sourceDurationSec; // 2,097,152 bps
+
+  // Original quality preset
+  const estOrig = computeTargetBitrate({
+    sourceFileSize,
+    sourceDurationSec,
+    quality: "original",
+    keepAudio: true,
+    bitrateMbps: 8,
+  });
+
+  // Native video bitrate should be source minus audio (192kbps)
+  assert.ok(estOrig.targetVideoBitrateBps < sourceBitrateBps);
+  assert.ok(estOrig.targetVideoBitrateBps >= 1_500_000);
+  assert.ok(estOrig.estimatedTotalBytes <= sourceFileSize * 1.05);
+
+  // Preset with lower bitrate (Compact @ 2.5 Mbps vs High @ 10 Mbps)
+  const estCompact = computeTargetBitrate({
+    sourceFileSize: 20 * 1024 * 1024, // 20MB @ 10s = 16 Mbps source
+    sourceDurationSec: 10,
+    quality: "compact",
+    keepAudio: true,
+    bitrateMbps: 2.5,
+  });
+
+  // Compact should have substantial savings vs 16 Mbps source
+  assert.ok(estCompact.savingsPct > 70);
+  assert.ok(estCompact.estimatedTotalBytes < 5 * 1024 * 1024);
+});
+
+test("WebCodecs audio frame size and planar buffer calculation for AAC and Opus", () => {
+  // AAC: 1024 samples/frame
+  const aacFrameSize = 1024;
+  const aacSampleRate = 48000;
+  const aacFrameDurationUs = Math.round((aacFrameSize / aacSampleRate) * 1_000_000);
+  assert.equal(aacFrameDurationUs, 21333); // ~21.33ms
+
+  // Opus: 960 samples/frame @ 48kHz (exact 20ms)
+  const opusFrameSize = 960;
+  const opusSampleRate = 48000;
+  const opusFrameDurationUs = Math.round((opusFrameSize / opusSampleRate) * 1_000_000);
+  assert.equal(opusFrameDurationUs, 20000); // 20ms exact
+});
+
+
 

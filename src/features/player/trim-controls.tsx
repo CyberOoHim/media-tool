@@ -226,12 +226,32 @@ export function TrimControls({
     abortControllerRef.current = new AbortController();
 
     try {
-      const activeBitrateMbps =
-        exportConfig.quality === "original"
-          ? (sourceMeta.sourceBitrateBps > 0
-              ? Number((sourceMeta.sourceBitrateBps / 1_000_000).toFixed(2))
-              : exportConfig.bitrateMbps || 14)
-          : exportConfig.bitrateMbps;
+      const rawSourceBitrateMbps =
+        sourceMeta.sourceBitrateBps > 0
+          ? Number((sourceMeta.sourceBitrateBps / 1_000_000).toFixed(2))
+          : 0;
+
+      let activeBitrateMbps: number;
+      if (exportConfig.quality === "original") {
+        if (rawSourceBitrateMbps > 0) {
+          const targetVideoMbps = exportConfig.keepAudio
+            ? Math.max(0.2, rawSourceBitrateMbps - 0.192)
+            : rawSourceBitrateMbps;
+          activeBitrateMbps = Number(targetVideoMbps.toFixed(2));
+        } else {
+          activeBitrateMbps = exportConfig.bitrateMbps || 8;
+        }
+      } else if (exportConfig.quality === "custom") {
+        activeBitrateMbps = exportConfig.bitrateMbps;
+      } else {
+        // Preset: don't unintentionally upscale bitrate beyond source
+        const presetMbps = exportConfig.bitrateMbps;
+        if (rawSourceBitrateMbps > 0 && presetMbps > rawSourceBitrateMbps) {
+          activeBitrateMbps = rawSourceBitrateMbps;
+        } else {
+          activeBitrateMbps = presetMbps;
+        }
+      }
 
       const result = await exportVideoWebCodecs({
         sourceUrl: video.objectUrl,
@@ -724,7 +744,7 @@ export function TrimControls({
                     const srcMbps =
                       sourceMeta.sourceBitrateBps > 0
                         ? Number((sourceMeta.sourceBitrateBps / 1_000_000).toFixed(2))
-                        : 14;
+                        : 8;
                     setExportConfig({
                       quality: v,
                       bitrateMbps: srcMbps,
