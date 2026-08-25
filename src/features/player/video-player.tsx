@@ -51,7 +51,14 @@ import { CROP_PRESETS } from "@/features/media/types";
 import { cn } from "@/lib/utils";
 import { captureVideoFrame } from "./capture-frame";
 import { JogDial } from "./jog-dial";
-import { FRAME_STEP, PLAYBACK_RATES, nextRate } from "./rates";
+import {
+  FRAME_STEP,
+  PLAYBACK_RATES,
+  clampRate,
+  nextRate,
+  nudgeRate,
+} from "./rates";
+import { SpeedControl } from "./speed-control";
 import { TrimControls } from "./trim-controls";
 
 export function VideoPlayer() {
@@ -180,10 +187,32 @@ export function VideoPlayer() {
     el.currentTime = Math.min(el.duration, Math.max(0, time));
   }, []);
 
+  const [pitchPreserve, setPitchPreserve] = useState(true);
+
   const applyRate = useCallback((next: number) => {
     const el = videoRef.current;
-    setRate(next);
-    if (el) el.playbackRate = next;
+    const clamped = clampRate(next);
+    setRate(clamped);
+    if (el) {
+      el.playbackRate = clamped;
+      if ("preservesPitch" in el) {
+        (el as unknown as { preservesPitch: boolean }).preservesPitch = pitchPreserve;
+      } else if ("webkitPreservesPitch" in el) {
+        (el as unknown as { webkitPreservesPitch: boolean }).webkitPreservesPitch = pitchPreserve;
+      }
+    }
+  }, [pitchPreserve]);
+
+  const togglePitchPreserve = useCallback((val: boolean) => {
+    setPitchPreserve(val);
+    const el = videoRef.current;
+    if (el) {
+      if ("preservesPitch" in el) {
+        (el as unknown as { preservesPitch: boolean }).preservesPitch = val;
+      } else if ("webkitPreservesPitch" in el) {
+        (el as unknown as { webkitPreservesPitch: boolean }).webkitPreservesPitch = val;
+      }
+    }
   }, []);
 
   const stepFrame = useCallback((frames: number) => {
@@ -386,11 +415,27 @@ export function VideoPlayer() {
           break;
         case "[":
           event.preventDefault();
-          applyRate(nextRate(rate, -1));
+          if (event.shiftKey) {
+            const next = nudgeRate(rate, -0.05);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          } else {
+            const next = nextRate(rate, -1);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          }
           break;
         case "]":
           event.preventDefault();
-          applyRate(nextRate(rate, 1));
+          if (event.shiftKey) {
+            const next = nudgeRate(rate, 0.05);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          } else {
+            const next = nextRate(rate, 1);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          }
           break;
         case "s":
           event.preventDefault();
@@ -925,6 +970,11 @@ export function VideoPlayer() {
                 setReady(true);
                 event.currentTarget.volume = volume;
                 event.currentTarget.playbackRate = rate;
+                if ("preservesPitch" in event.currentTarget) {
+                  (event.currentTarget as unknown as { preservesPitch: boolean }).preservesPitch = pitchPreserve;
+                } else if ("webkitPreservesPitch" in event.currentTarget) {
+                  (event.currentTarget as unknown as { webkitPreservesPitch: boolean }).webkitPreservesPitch = pitchPreserve;
+                }
               }}
               onTimeUpdate={(event) => {
                 const el = event.currentTarget;
@@ -1322,7 +1372,7 @@ export function VideoPlayer() {
           </p>
         </div>
 
-        {/* Audio Volume & Fullscreen */}
+        {/* Audio Volume, Deck Speed & Fullscreen */}
         <div className="flex items-center gap-2">
           <Hint label={muted ? "Unmute (M)" : "Mute (M)"}>
             <Button
@@ -1351,6 +1401,14 @@ export function VideoPlayer() {
                 el.muted = v === 0;
               }
             }}
+          />
+          {/* Deck Playback Speed Control (Freely selectable fine-grained options) */}
+          <SpeedControl
+            rate={rate}
+            onRateChange={applyRate}
+            disabled={disabled}
+            pitchPreserve={pitchPreserve}
+            onPitchPreserveChange={togglePitchPreserve}
           />
           <Hint label="Fullscreen (F)">
             <Button
@@ -1462,17 +1520,24 @@ export function VideoPlayer() {
 
             {/* Speed Selector & Direct Jump Row */}
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/50 pt-3">
-              {/* Speed Selector Chips */}
-              <div className="flex items-center gap-2">
+              {/* Speed Selector Chips & Fine Control */}
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Deck Speed:
                 </span>
+                <SpeedControl
+                  rate={rate}
+                  onRateChange={applyRate}
+                  disabled={disabled}
+                  pitchPreserve={pitchPreserve}
+                  onPitchPreserveChange={togglePitchPreserve}
+                />
                 <div className="flex flex-wrap gap-1.5">
                   {PLAYBACK_RATES.map((r) => (
                     <Button
                       key={r}
                       size="sm"
-                      variant={rate === r ? "signal" : "outline"}
+                      variant={Math.abs(rate - r) < 0.001 ? "signal" : "outline"}
                       disabled={disabled}
                       onClick={() => applyRate(r)}
                       className="h-8 min-w-10 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"

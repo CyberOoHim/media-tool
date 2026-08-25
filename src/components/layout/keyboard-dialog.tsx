@@ -7,7 +7,7 @@ const SHORTCUTS = [
   { key: "Space", desc: "Play / Pause deck (Video & Audio)" },
   { key: "← / →", desc: "Seek backward / forward 10s" },
   { key: ", / .", desc: "Step frame / 50ms backward & forward" },
-  { key: "[ / ]", desc: "Decrease / increase playback speed" },
+  { key: "[ / ]", desc: "Decrease / increase playback speed (Shift for ±0.05× fine)" },
   { key: "I / O", desc: "Mark In / Mark Out bounds" },
   { key: "X", desc: "Clear In / Out marker range" },
   { key: "M", desc: "Add Cue Marker / Bookmark" },

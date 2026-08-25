@@ -22,11 +22,11 @@ import { Panel } from "@/components/layout/panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
 import { JogDial } from "@/features/player/jog-dial";
-import { nextRate } from "@/features/player/rates";
+import { nextRate, nudgeRate } from "@/features/player/rates";
+import { SpeedControl } from "@/features/player/speed-control";
 import { cn } from "@/lib/utils";
 import { AudioCueControls } from "./audio-cue-controls";
 import { AudioDspControls } from "./audio-dsp-controls";
@@ -500,11 +500,27 @@ export function AudioDeck() {
           break;
         case "[":
           e.preventDefault();
-          applyRate(nextRate(rate, -1));
+          if (e.shiftKey) {
+            const next = nudgeRate(rate, -0.05);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          } else {
+            const next = nextRate(rate, -1);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          }
           break;
         case "]":
           e.preventDefault();
-          applyRate(nextRate(rate, 1));
+          if (e.shiftKey) {
+            const next = nudgeRate(rate, 0.05);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          } else {
+            const next = nextRate(rate, 1);
+            applyRate(next);
+            toast(`Speed: ${next}×`);
+          }
           break;
         default:
           break;
@@ -804,25 +820,13 @@ export function AudioDeck() {
           {/* Playback Rate & Pitch Preserves */}
           <div className="flex items-center gap-1.5 font-mono text-xs">
             <span className="text-[10px] text-muted-foreground">Speed:</span>
-            <div className="flex items-center gap-1">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 font-mono text-[10px] font-bold"
-                disabled={!audio}
-                onClick={() => applyRate(nextRate(rate, 1))}
-              >
-                {rate}×
-              </Button>
-              <label className="flex items-center gap-1 text-[9px] text-muted-foreground cursor-pointer">
-                <Switch
-                  checked={pitchPreserve}
-                  onCheckedChange={setPitchPreserve}
-                  className="scale-65"
-                />
-                <span className="hidden sm:inline">Pitch Lock</span>
-              </label>
-            </div>
+            <SpeedControl
+              rate={rate}
+              onRateChange={applyRate}
+              disabled={!audio}
+              pitchPreserve={pitchPreserve}
+              onPitchPreserveChange={setPitchPreserve}
+            />
           </div>
 
           {/* Master Volume & Mute */}
