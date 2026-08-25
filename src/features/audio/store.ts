@@ -11,6 +11,7 @@ import {
   renderProcessedAudioOffline,
   type WaveformPeaks,
 } from "./audio-engine";
+import { encodeAudioBuffer } from "./audio-exporter";
 import type {
   AudioExportConfig,
   AudioSession,
@@ -437,6 +438,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       dynamics,
       dynamicsBypass,
       gainBoost,
+      invertPhase,
+      monoSum,
       exportConfig,
     } = get();
 
@@ -446,7 +449,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     }
 
     const cfg = { ...exportConfig, ...overrideOptions };
-    set({ isExporting: true, exportProgress: 10 });
+    set({ isExporting: true, exportProgress: 5 });
 
     try {
       const renderedBuffer = await renderProcessedAudioOffline({
@@ -464,18 +467,23 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         fadeInSec: cfg.fadeInSec,
         fadeOutSec: cfg.fadeOutSec,
         normalize: cfg.normalize,
+        invertPhase,
+        monoSum,
         targetChannels: cfg.channels,
         targetSampleRate: cfg.sampleRate,
       });
 
-      set({ exportProgress: 75 });
+      set({ exportProgress: 50 });
 
-      const wavBlob = audioBufferToWavBlob(renderedBuffer, cfg.bitDepth);
+      const encoded = await encodeAudioBuffer(renderedBuffer, cfg, (progress) => {
+        set({ exportProgress: Math.min(99, 50 + Math.round(progress * 0.49)) });
+      });
+
       const baseName = fileStem(audio.fileName);
       const modeSuffix = trimStart !== null || trimEnd !== null ? `_${trimMode}` : "_master";
-      const outFileName = `${baseName}${modeSuffix}.wav`;
+      const outFileName = `${baseName}${modeSuffix}.${encoded.extension}`;
 
-      downloadBlob(wavBlob, outFileName);
+      downloadBlob(encoded.blob, outFileName);
       set({ isExporting: false, exportProgress: 100 });
       toast.success(`Audio Exported: ${outFileName}`);
     } catch (err) {
@@ -485,14 +493,26 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   },
 
   exportCueSlice: async (cue, nextCue) => {
-    const { audio, eq, eqBypass, lowCut, highCut, dynamics, dynamicsBypass, gainBoost, exportConfig } = get();
+    const {
+      audio,
+      eq,
+      eqBypass,
+      lowCut,
+      highCut,
+      dynamics,
+      dynamicsBypass,
+      gainBoost,
+      invertPhase,
+      monoSum,
+      exportConfig,
+    } = get();
     if (!audio?.audioBuffer) return;
 
     const startSec = cue.timestampSec;
     const endSec = nextCue ? nextCue.timestampSec : audio.duration;
     if (endSec <= startSec) return;
 
-    set({ isExporting: true, exportProgress: 20 });
+    set({ isExporting: true, exportProgress: 10 });
     try {
       const renderedBuffer = await renderProcessedAudioOffline({
         sourceBuffer: audio.audioBuffer,
@@ -509,20 +529,27 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         fadeInSec: 0.01,
         fadeOutSec: 0.01,
         normalize: "peak-0db",
+        invertPhase,
+        monoSum,
         targetChannels: exportConfig.channels,
         targetSampleRate: exportConfig.sampleRate,
       });
 
-      const wavBlob = audioBufferToWavBlob(renderedBuffer, 16);
-      const safeLabel = cue.label.replace(/[^a-zA-Z0-9_-]/g, "_");
-      const outFileName = `${fileStem(audio.fileName)}_${safeLabel}.wav`;
+      set({ exportProgress: 50 });
 
-      downloadBlob(wavBlob, outFileName);
+      const encoded = await encodeAudioBuffer(renderedBuffer, exportConfig, (progress) => {
+        set({ exportProgress: Math.min(99, 50 + Math.round(progress * 0.49)) });
+      });
+
+      const safeLabel = cue.label.replace(/[^a-zA-Z0-9_-]/g, "_");
+      const outFileName = `${fileStem(audio.fileName)}_${safeLabel}.${encoded.extension}`;
+
+      downloadBlob(encoded.blob, outFileName);
       set({ isExporting: false, exportProgress: 100 });
       toast.success(`Exported slice: ${outFileName}`);
-    } catch {
-      set({ isExporting: false });
-      toast.error("Failed to export slice");
+    } catch (err) {
+      set({ isExporting: false, exportProgress: 0 });
+      toast.error(err instanceof Error ? err.message : "Failed to export slice");
     }
   },
 

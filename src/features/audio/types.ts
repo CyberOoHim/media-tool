@@ -47,8 +47,9 @@ export interface CuePoint {
   color?: string;
 }
 
-export type AudioExportFormat = "wav" | "mp3" | "aac" | "webm" | "ogg";
+export type AudioExportFormat = "wav" | "ogg" | "opus" | "webm" | "aac" | "mp3";
 export type AudioBitDepth = 16 | 24 | 32;
+export type AudioBitrateKbps = 64 | 96 | 128 | 192 | 256 | 320;
 export type AudioNormalizeMode = "none" | "peak-0db" | "peak-1db" | "ebu-r128";
 
 export interface AudioExportConfig {

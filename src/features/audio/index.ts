@@ -7,3 +7,5 @@ export { AudioCueControls } from "./audio-cue-controls";
 export { useAudioStore } from "./store";
 export * from "./types";
 export * from "./audio-engine";
+export * from "./audio-exporter";
+export * from "./ogg-opus-muxer";

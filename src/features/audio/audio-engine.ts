@@ -273,6 +273,8 @@ export async function renderProcessedAudioOffline(options: {
   fadeInSec: number;
   fadeOutSec: number;
   normalize: "none" | "peak-0db" | "peak-1db" | "ebu-r128";
+  invertPhase?: boolean;
+  monoSum?: boolean;
   targetChannels?: 1 | 2;
   targetSampleRate?: number;
 }): Promise<AudioBuffer> {
@@ -291,6 +293,8 @@ export async function renderProcessedAudioOffline(options: {
     fadeInSec,
     fadeOutSec,
     normalize,
+    invertPhase = false,
+    monoSum = false,
     targetChannels = sourceBuffer.numberOfChannels as 1 | 2,
     targetSampleRate = sourceBuffer.sampleRate,
   } = options;
@@ -467,7 +471,27 @@ export async function renderProcessedAudioOffline(options: {
   // Render audio offline
   const renderedBuffer = await offlineCtx.startRendering();
 
-  // 3. Post-Process Normalization if enabled
+  // 3. Post-Process Invert Phase / Mono Sum if enabled
+  if (invertPhase) {
+    // Invert phase of channel 1 (or all channels)
+    const ch = renderedBuffer.numberOfChannels > 1 ? 1 : 0;
+    const data = renderedBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = -data[i]!;
+    }
+  }
+
+  if (monoSum && renderedBuffer.numberOfChannels > 1) {
+    const left = renderedBuffer.getChannelData(0);
+    const right = renderedBuffer.getChannelData(1);
+    for (let i = 0; i < left.length; i++) {
+      const mono = (left[i]! + right[i]!) * 0.5;
+      left[i] = mono;
+      right[i] = mono;
+    }
+  }
+
+  // 4. Post-Process Normalization if enabled
   if (normalize !== "none") {
     applyNormalization(renderedBuffer, normalize);
   }

@@ -181,7 +181,7 @@ export function AudioCueControls({ onSeek }: AudioCueControlsProps) {
                     variant="outline"
                     className="h-6 px-2 text-[10px]"
                     onClick={() => exportCueSlice(cue, nextCue)}
-                    title="Export slice to WAV"
+                    title="Export audio slice"
                   >
                     <Download className="size-3 mr-1" />
                     Slice

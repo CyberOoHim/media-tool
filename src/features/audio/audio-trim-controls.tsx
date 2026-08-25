@@ -251,9 +251,12 @@ export function AudioTrimControls() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="wav">WAV (PCM Lossless)</SelectItem>
+                <SelectItem value="opus">OPUS (RFC 7845 Native)</SelectItem>
+                <SelectItem value="ogg">OGG (Opus Audio)</SelectItem>
                 <SelectItem value="webm">WebM Audio</SelectItem>
-                <SelectItem value="mp3">MP3 / Audio</SelectItem>
+                <SelectItem value="wav">WAV (PCM Lossless)</SelectItem>
+                <SelectItem value="aac">AAC / M4A (MPEG-4)</SelectItem>
+                <SelectItem value="mp3">MP3 Audio</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -269,31 +272,55 @@ export function AudioTrimControls() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="48000">48.0 kHz (Opus / Studio Standard)</SelectItem>
                 <SelectItem value="44100">44.1 kHz (CD Quality)</SelectItem>
-                <SelectItem value="48000">48.0 kHz (Studio Standard)</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
-          {/* Bit Depth / Quality */}
-          <div className="flex flex-col gap-1">
-            <Label className="text-[10px] text-muted-foreground">Bit Depth</Label>
-            <Select
-              value={String(exportConfig.bitDepth)}
-              onValueChange={(val) =>
-                setExportConfig({ bitDepth: Number.parseInt(val, 10) as AudioBitDepth })
-              }
-            >
-              <SelectTrigger className="h-7 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="16">16-bit (Standard)</SelectItem>
-                <SelectItem value="24">24-bit (High Res)</SelectItem>
-                <SelectItem value="32">32-bit Float</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Bit Depth (WAV) or Bitrate (Compressed) */}
+          {exportConfig.format === "wav" ? (
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] text-muted-foreground">Bit Depth</Label>
+              <Select
+                value={String(exportConfig.bitDepth)}
+                onValueChange={(val) =>
+                  setExportConfig({ bitDepth: Number.parseInt(val, 10) as AudioBitDepth })
+                }
+              >
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="16">16-bit (Standard PCM)</SelectItem>
+                  <SelectItem value="24">24-bit (High Res PCM)</SelectItem>
+                  <SelectItem value="32">32-bit Float</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <Label className="text-[10px] text-muted-foreground">Bitrate (kbps)</Label>
+              <Select
+                value={String(exportConfig.bitrateKbps || 192)}
+                onValueChange={(val) =>
+                  setExportConfig({ bitrateKbps: Number.parseInt(val, 10) })
+                }
+              >
+                <SelectTrigger className="h-7 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="64">64 kbps (Voice / Low)</SelectItem>
+                  <SelectItem value="96">96 kbps (Speech)</SelectItem>
+                  <SelectItem value="128">128 kbps (Standard)</SelectItem>
+                  <SelectItem value="192">192 kbps (High Quality)</SelectItem>
+                  <SelectItem value="256">256 kbps (Studio)</SelectItem>
+                  <SelectItem value="320">320 kbps (Max Quality)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           {/* Channels */}
           <div className="flex flex-col gap-1">
@@ -320,7 +347,7 @@ export function AudioTrimControls() {
           {isExporting && (
             <div className="flex flex-col gap-1">
               <div className="flex justify-between text-[10px]">
-                <span className="text-signal font-bold">Rendering Offline Audio Graph...</span>
+                <span className="text-signal font-bold">Rendering & Encoding Master Audio...</span>
                 <span>{exportProgress}%</span>
               </div>
               <Progress value={exportProgress} className="h-1.5" />
@@ -337,7 +364,9 @@ export function AudioTrimControls() {
             <Download className="size-4 mr-2" />
             {isExporting
               ? "Rendering Master File..."
-              : `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitDepth}-bit)`}
+              : exportConfig.format === "wav"
+                ? `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitDepth}-bit)`
+                : `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitrateKbps || 192} kbps)`}
           </Button>
         </div>
       </div>
