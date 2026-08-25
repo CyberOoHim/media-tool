@@ -3,7 +3,7 @@ import {
   MAX_DIMENSION,
   MIN_DIMENSION,
   type CropPresetId,
-} from "./types";
+} from "./types.ts";
 
 export type CropTarget = {
   width: number;

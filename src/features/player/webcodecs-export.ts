@@ -126,8 +126,14 @@ export async function exportVideoWebCodecs({
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
+  const isMp4 = config.format === "mp4";
+
   // 3. Audio Extraction & Preparation (if requested)
   let slicedAudioBuffer: AudioBuffer | null = null;
+  let hasAudioTrack = false;
+  const audioCodecString = isMp4 ? "mp4a.40.2" : "opus";
+  let audioEncoderConfig: AudioEncoderConfig | null = null;
+
   if (config.keepAudio) {
     try {
       onProgress?.({
@@ -139,58 +145,76 @@ export async function exportVideoWebCodecs({
         fps: 0,
         elapsedSec: 0,
         estimatedRemainingSec: 0,
-        message: "Processing synced audio track...",
+        message: "Processing and syncing audio track...",
       });
 
       const response = await fetch(sourceUrl);
       const arrayBuffer = await response.arrayBuffer();
-      const audioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const audioCtx = new AudioCtxClass();
+      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+      void audioCtx.close();
 
-      // Slice and stitch audio segments
-      const sampleRate = decodedBuffer.sampleRate;
-      const numChannels = decodedBuffer.numberOfChannels;
-      const totalAudioSamples = Math.round(totalOutputDuration * sampleRate);
+      if (decodedBuffer && decodedBuffer.length > 0 && decodedBuffer.numberOfChannels > 0) {
+        // AAC supports 44100Hz or 48000Hz; Opus in WebCodecs strictly requires 48000Hz
+        const targetSampleRate = isMp4
+          ? decodedBuffer.sampleRate === 44100
+            ? 44100
+            : 48000
+          : 48000;
+        const targetChannels = Math.min(2, Math.max(1, decodedBuffer.numberOfChannels)) as 1 | 2;
+        const totalOutputSamples = Math.max(1, Math.round(totalOutputDuration * targetSampleRate));
 
-      if (totalAudioSamples > 0 && numChannels > 0) {
-        slicedAudioBuffer = audioCtx.createBuffer(numChannels, totalAudioSamples, sampleRate);
+        const offlineCtx = new OfflineAudioContext(
+          targetChannels,
+          totalOutputSamples,
+          targetSampleRate,
+        );
 
-        for (let ch = 0; ch < numChannels; ch++) {
-          const sourceChannelData = decodedBuffer.getChannelData(ch);
-          const targetChannelData = slicedAudioBuffer.getChannelData(ch);
-          let targetOffset = 0;
+        let currentDestTime = 0;
+        for (const seg of validSegments) {
+          const segDuration = seg.endSec - seg.startSec;
+          if (segDuration > 0) {
+            const src = offlineCtx.createBufferSource();
+            src.buffer = decodedBuffer;
+            src.connect(offlineCtx.destination);
+            src.start(currentDestTime, seg.startSec, segDuration);
+            currentDestTime += segDuration;
+          }
+        }
 
-          for (const seg of validSegments) {
-            const startSample = Math.min(
-              sourceChannelData.length,
-              Math.floor(seg.startSec * sampleRate),
-            );
-            const endSample = Math.min(
-              sourceChannelData.length,
-              Math.floor(seg.endSec * sampleRate),
-            );
-            const sliceLength = Math.max(0, endSample - startSample);
+        slicedAudioBuffer = await offlineCtx.startRendering();
 
-            if (sliceLength > 0 && targetOffset < totalAudioSamples) {
-              const toCopy = Math.min(sliceLength, totalAudioSamples - targetOffset);
-              const slice = sourceChannelData.subarray(startSample, startSample + toCopy);
-              targetChannelData.set(slice, targetOffset);
-              targetOffset += toCopy;
+        if (slicedAudioBuffer && typeof AudioEncoder !== "undefined" && typeof AudioData !== "undefined") {
+          audioEncoderConfig = {
+            codec: audioCodecString,
+            numberOfChannels: slicedAudioBuffer.numberOfChannels,
+            sampleRate: slicedAudioBuffer.sampleRate,
+            bitrate: 192_000,
+          };
+
+          try {
+            if (typeof AudioEncoder.isConfigSupported === "function") {
+              const support = await AudioEncoder.isConfigSupported(audioEncoderConfig);
+              hasAudioTrack = Boolean(support.supported);
+            } else {
+              hasAudioTrack = true;
             }
+          } catch {
+            hasAudioTrack = true;
           }
         }
       }
-      void audioCtx.close();
-    } catch {
-      // If audio decode fails or video is silent, proceed with video-only export
+    } catch (err) {
+      console.warn("Audio extraction or decoding failed (exporting video-only):", err);
       slicedAudioBuffer = null;
+      hasAudioTrack = false;
     }
   }
 
   // 4. Initialize Muxer (MP4 or WebM)
-  const isMp4 = config.format === "mp4";
-  const hasAudioTrack = Boolean(slicedAudioBuffer && config.keepAudio);
-
   let mp4Muxer: Mp4Muxer<ArrayBufferTarget> | null = null;
   let webmMuxer: WebmMuxer<WebmArrayBufferTarget> | null = null;
 
@@ -201,6 +225,7 @@ export async function exportVideoWebCodecs({
         codec: "avc",
         width,
         height,
+        frameRate: targetFps,
       },
       audio: hasAudioTrack && slicedAudioBuffer
         ? {
@@ -290,52 +315,65 @@ export async function exportVideoWebCodecs({
     }
   }
 
-  // 6. Audio Encoder Setup (if audio present)
-  let audioEngine: AudioEncoder | null = null;
-  if (hasAudioTrack && slicedAudioBuffer && typeof AudioEncoder !== "undefined") {
+  // 6. Audio Encoder Execution (with strict frame sizing & planar padding)
+  let audioEncodedSuccess = false;
+  if (hasAudioTrack && slicedAudioBuffer && audioEncoderConfig) {
+    let audioEncoderError: Error | null = null;
+    let audioChunksCount = 0;
+
+    const audioEngine = new AudioEncoder({
+      output: (chunk, meta) => {
+        audioChunksCount++;
+        if (mp4Muxer) {
+          mp4Muxer.addAudioChunk(chunk, meta);
+        } else if (webmMuxer) {
+          webmMuxer.addAudioChunk(chunk, meta);
+        }
+      },
+      error: (e) => {
+        console.error("AudioEncoder runtime error:", e);
+        audioEncoderError = e instanceof Error ? e : new Error(String(e));
+      },
+    });
+
     try {
-      audioEngine = new AudioEncoder({
-        output: (chunk, meta) => {
-          if (mp4Muxer) {
-            mp4Muxer.addAudioChunk(chunk, meta);
-          } else if (webmMuxer) {
-            webmMuxer.addAudioChunk(chunk, meta);
-          }
-        },
-        error: (e) => console.warn("AudioEncoder warning:", e),
-      });
+      audioEngine.configure(audioEncoderConfig);
 
-      audioEngine.configure({
-        codec: isMp4 ? "mp4a.40.2" : "opus",
-        numberOfChannels: slicedAudioBuffer.numberOfChannels,
-        sampleRate: slicedAudioBuffer.sampleRate,
-        bitrate: 192_000,
-      });
-
-      // Encode audio data in blocks
+      // AAC requires 1024 samples/frame; Opus strictly requires 960 samples (20ms @ 48kHz)
+      const frameSize = isMp4 ? 1024 : 960;
       const sampleRate = slicedAudioBuffer.sampleRate;
       const numChannels = slicedAudioBuffer.numberOfChannels;
       const totalSamples = slicedAudioBuffer.length;
-      const blockSize = 2048;
+      const planarBuffer = new Float32Array(frameSize * numChannels);
 
-      for (let offset = 0; offset < totalSamples; offset += blockSize) {
+      for (let offset = 0; offset < totalSamples; offset += frameSize) {
         if (signal?.aborted) break;
-        const currentBlock = Math.min(blockSize, totalSamples - offset);
-        const planarData = new Float32Array(currentBlock * numChannels);
+        if (audioEncoderError) throw audioEncoderError;
+
+        // Thermal & memory backpressure throttling
+        while (audioEngine.encodeQueueSize > 6) {
+          await new Promise((r) => setTimeout(r, 4));
+        }
+
+        const currentBlock = Math.min(frameSize, totalSamples - offset);
+        if (currentBlock < frameSize) {
+          planarBuffer.fill(0); // Zero-pad the trailing samples
+        }
 
         for (let ch = 0; ch < numChannels; ch++) {
           const chData = slicedAudioBuffer.getChannelData(ch);
-          planarData.set(chData.subarray(offset, offset + currentBlock), ch * currentBlock);
+          const slice = chData.subarray(offset, offset + currentBlock);
+          planarBuffer.set(slice, ch * frameSize);
         }
 
         const audioTimestampUs = Math.round((offset / sampleRate) * 1_000_000);
         const audioData = new AudioData({
           format: "f32-planar",
           sampleRate,
-          numberOfFrames: currentBlock,
+          numberOfFrames: frameSize,
           numberOfChannels: numChannels,
           timestamp: audioTimestampUs,
-          data: planarData,
+          data: planarBuffer,
         });
 
         audioEngine.encode(audioData);
@@ -343,8 +381,15 @@ export async function exportVideoWebCodecs({
       }
 
       await audioEngine.flush();
-    } catch (e) {
-      console.warn("Audio encoding was bypassed:", e);
+      audioEngine.close();
+      audioEncodedSuccess = audioChunksCount > 0;
+    } catch (err) {
+      console.warn("Audio encoding was bypassed due to encoder error:", err);
+      try {
+        audioEngine.close();
+      } catch {
+        // Ignore audio encoder cleanup errors
+      }
     }
   }
 
@@ -482,7 +527,8 @@ export async function exportVideoWebCodecs({
   const ext = isMp4 ? "mp4" : "webm";
   const stem = fileName.replace(/\.[^/.]+$/, "");
   const modeTag = segments.length > 1 ? "cut" : "trimmed";
-  const exportedFileName = `${stem}_${modeTag}_${Date.now().toString(36)}.${ext}`;
+  const soundTag = hasAudioTrack && audioEncodedSuccess ? "audio" : "muted";
+  const exportedFileName = `${stem}_${modeTag}_${soundTag}_${Date.now().toString(36)}.${ext}`;
 
   onProgress?.({
     phase: "completed",
@@ -496,6 +542,9 @@ export async function exportVideoWebCodecs({
     message: `Export completed in ${totalElapsedSec.toFixed(1)}s (${finalSpeedMultiplier}× realtime)!`,
   });
 
+  const actualHasAudio = Boolean(hasAudioTrack && audioEncodedSuccess);
+  const audioCodecLabel = actualHasAudio ? (isMp4 ? "AAC" : "Opus") : undefined;
+
   return {
     blob: finalBlob,
     fileName: exportedFileName,
@@ -507,5 +556,7 @@ export async function exportVideoWebCodecs({
     format: isMp4 ? "mp4" : "webm",
     width,
     height,
+    hasAudio: actualHasAudio,
+    audioCodec: audioCodecLabel,
   };
 }

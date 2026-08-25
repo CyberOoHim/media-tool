@@ -74,6 +74,8 @@ export interface ExportResult {
   format: "mp4" | "webm";
   width: number;
   height: number;
+  hasAudio: boolean;
+  audioCodec?: string;
 }
 
 export const EXPORT_QUALITY_PRESETS: Record<

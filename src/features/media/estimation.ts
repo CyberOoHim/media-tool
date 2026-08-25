@@ -1,8 +1,8 @@
-import { formatFileSize } from "./format";
-import type { CropPresetId, OutputFormat, SourceImage } from "./types";
-import type { ExportConfig, TrimMode } from "../player/trim-types";
-import { calculateExportResolution } from "../player/trim-types";
-import { resolveCropTarget } from "./crop";
+import { formatFileSize } from "./format.ts";
+import type { CropPresetId, OutputFormat, SourceImage } from "./types.ts";
+import type { ExportConfig, TrimMode } from "../player/trim-types.ts";
+import { calculateExportResolution } from "../player/trim-types.ts";
+import { resolveCropTarget } from "./crop.ts";
 
 export interface VideoSourceMetadata {
   containerLabel: string;
@@ -247,12 +247,12 @@ export function estimateVideoExport({
     const rawSourceBitrateBps = Math.round((sourceFileSize * 8) / sourceDurationSec);
     targetVideoBitrateBps = Math.max(
       200_000,
-      exportConfig.keepAudio ? rawSourceBitrateBps - 160_000 : rawSourceBitrateBps,
+      exportConfig.keepAudio ? rawSourceBitrateBps - 192_000 : rawSourceBitrateBps,
     );
   } else {
     targetVideoBitrateBps = Math.round((exportConfig.bitrateMbps || 8) * 1_000_000);
   }
-  const targetAudioBitrateBps = exportConfig.keepAudio ? 160_000 : 0; // 160 kbps AAC/Opus
+  const targetAudioBitrateBps = exportConfig.keepAudio ? 192_000 : 0; // 192 kbps AAC/Opus
   const targetTotalBitrateBps = targetVideoBitrateBps + targetAudioBitrateBps;
 
   // Payloads in bytes

@@ -780,25 +780,54 @@ export function TrimControls({
 
             {/* Synced Audio Toggle */}
             <div className="space-y-1">
-              <Label className="text-[10px]">Audio Track</Label>
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] flex items-center gap-1">
+                  {exportConfig.keepAudio ? (
+                    <Volume2 className="size-3 text-success" />
+                  ) : (
+                    <VolumeX className="size-3 text-destructive" />
+                  )}
+                  Export Audio
+                </Label>
+                <span
+                  className={cn(
+                    "rounded-xs px-1.5 py-0.2 font-mono text-[9px] font-bold uppercase",
+                    exportConfig.keepAudio
+                      ? "border border-success/40 bg-success/15 text-success"
+                      : "border border-border bg-secondary text-muted-foreground",
+                  )}
+                >
+                  {exportConfig.keepAudio ? "SOUND ON" : "SOUND OFF"}
+                </span>
+              </div>
               <Button
                 type="button"
                 variant={exportConfig.keepAudio ? "outline" : "secondary"}
                 size="sm"
                 disabled={disabled || isExporting}
                 onClick={() => setExportConfig({ keepAudio: !exportConfig.keepAudio })}
-                className="h-7 w-full justify-between px-2 text-[11px] font-mono"
+                className={cn(
+                  "h-7 w-full justify-between px-2 text-[11px] font-mono transition-all",
+                  exportConfig.keepAudio
+                    ? "border-success/60 bg-success/10 text-foreground hover:bg-success/20 shadow-[1px_1px_0px_var(--color-success)]"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+                title={
+                  exportConfig.keepAudio
+                    ? "Audio track will be synchronized and included in the exported video"
+                    : "Export will be silent / muted with no audio track"
+                }
               >
-                <span className="flex items-center gap-1">
+                <span className="flex items-center gap-1.5 font-bold">
                   {exportConfig.keepAudio ? (
-                    <Volume2 className="size-3 text-success" />
+                    <Volume2 className="size-3.5 text-success animate-pulse" />
                   ) : (
-                    <VolumeX className="size-3 text-muted-foreground" />
+                    <VolumeX className="size-3.5 text-destructive" />
                   )}
-                  {exportConfig.keepAudio ? "Retain Audio" : "Muted (No Audio)"}
+                  {exportConfig.keepAudio ? "Include Sound Track" : "Mute (No Sound Track)"}
                 </span>
-                <span className="text-[9px] text-muted-foreground uppercase font-bold">
-                  {exportConfig.keepAudio ? "ON" : "OFF"}
+                <span className="text-[9px] font-mono font-bold uppercase">
+                  {exportConfig.keepAudio ? "🔊 ON" : "🔇 OFF"}
                 </span>
               </Button>
             </div>
@@ -996,9 +1025,16 @@ export function TrimControls({
                         ? `${Math.round(exportConfig.bitrateMbps * 1000)} kbps`
                         : `${exportConfig.bitrateMbps.toFixed(1)} Mbps`}
                   </strong>{" "}
-                  · {exportConfig.format === "mp4" ? "MP4 (AVC)" : "WebM (VP9)"} · Audio:{" "}
-                  <strong className={exportConfig.keepAudio ? "text-success" : "text-muted-foreground"}>
-                    {exportConfig.keepAudio ? "On (160 kbps)" : "Muted"}
+                  · {exportConfig.format === "mp4" ? "MP4 (AVC)" : "WebM (VP9)"} · Sound Track:{" "}
+                  <strong
+                    className={cn(
+                      "font-bold",
+                      exportConfig.keepAudio ? "text-success" : "text-destructive",
+                    )}
+                  >
+                    {exportConfig.keepAudio
+                      ? `🔊 ON (192 kbps ${exportConfig.format === "mp4" ? "AAC" : "Opus"})`
+                      : "🔇 OFF (Muted)"}
                   </strong>
                 </span>
               </div>
@@ -1069,9 +1105,26 @@ export function TrimControls({
               className="w-full gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] active:translate-x-[1px] active:translate-y-[1px]"
             >
               <Zap className="size-4" />
-              {isExporting
-                ? "Hardware WebCodecs Exporting..."
-                : `Export ${trimMode === "trim" ? "Trimmed" : "Cut"} Video (${targetResolution.width}×${targetResolution.height} · ${formatTime(outputDurationSec)})`}
+              {isExporting ? (
+                "Hardware WebCodecs Exporting..."
+              ) : (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <span>
+                    Export {trimMode === "trim" ? "Trimmed" : "Cut"} Video (
+                    {targetResolution.width}×{targetResolution.height} · {formatTime(outputDurationSec)})
+                  </span>
+                  <span
+                    className={cn(
+                      "rounded-xs px-1.5 py-0.5 text-[10px] font-mono font-bold uppercase",
+                      exportConfig.keepAudio
+                        ? "bg-black/80 text-success border border-success/40"
+                        : "bg-black/80 text-muted-foreground border border-border",
+                    )}
+                  >
+                    {exportConfig.keepAudio ? "🔊 Sound ON" : "🔇 Sound OFF"}
+                  </span>
+                </div>
+              )}
             </Button>
           </div>
 
@@ -1094,6 +1147,12 @@ export function TrimControls({
                 </span>
                 <span>
                   Frames: <strong className="text-white">{exportProgress.currentFrame}</strong> / {exportProgress.totalFrames}
+                </span>
+                <span>
+                  Sound:{" "}
+                  <strong className={exportConfig.keepAudio ? "text-success font-bold" : "text-muted-foreground font-bold"}>
+                    {exportConfig.keepAudio ? "🔊 ON (Synced Track)" : "🔇 OFF (Muted)"}
+                  </strong>
                 </span>
                 <span>
                   Elapsed: <strong className="text-white">{exportProgress.elapsedSec}s</strong>
@@ -1123,9 +1182,30 @@ export function TrimControls({
                   <CheckCircle2 className="size-4" />
                   <span>Export Succeeded (Hardware WebCodecs)</span>
                 </div>
-                <Badge variant="outline" className="border-success text-success">
-                  {exportResult.speedMultiplier}× Realtime Speed
-                </Badge>
+                <div className="flex items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "font-bold font-mono text-[9px] uppercase",
+                      exportResult.hasAudio
+                        ? "border-success bg-success/20 text-success"
+                        : "border-border bg-secondary text-muted-foreground",
+                    )}
+                  >
+                    {exportResult.hasAudio ? (
+                      <span className="flex items-center gap-1">
+                        <Volume2 className="size-3" /> Sound ON ({exportResult.audioCodec || "Stereo"})
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <VolumeX className="size-3" /> Sound OFF (Muted)
+                      </span>
+                    )}
+                  </Badge>
+                  <Badge variant="outline" className="border-success text-success">
+                    {exportResult.speedMultiplier}× Speed
+                  </Badge>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground border-t border-border/50 pt-1.5">
@@ -1134,6 +1214,12 @@ export function TrimControls({
                 </span>
                 <span>
                   Resolution: <strong className="text-foreground">{exportResult.width} × {exportResult.height} px</strong>
+                </span>
+                <span>
+                  Sound:{" "}
+                  <strong className={exportResult.hasAudio ? "text-success font-bold" : "text-muted-foreground font-bold"}>
+                    {exportResult.hasAudio ? `🔊 Included (${exportResult.audioCodec || "Audio Track"})` : "🔇 Muted / No Audio"}
+                  </strong>
                 </span>
                 <span>
                   Size: <strong className="text-foreground">{formatFileSize(exportResult.fileSize)}</strong>

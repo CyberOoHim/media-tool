@@ -116,3 +116,89 @@ test("Audio Export format configurations and mime types", () => {
   assert.ok(formats.includes("mp3"));
 });
 
+test("Video Export estimation accurately accounts for Sound Track ON vs OFF", async () => {
+  const { estimateVideoExport } = await import("../src/features/media/estimation.ts");
+
+  // With Sound ON
+  const estWithSound = estimateVideoExport({
+    sourceFileSize: 50_000_000,
+    sourceDurationSec: 60,
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    trimMode: "trim",
+    trimStart: 0,
+    trimEnd: 30,
+    exportConfig: {
+      quality: "high",
+      resolution: "1080p",
+      format: "mp4",
+      bitrateMbps: 10,
+      fps: 30,
+      keepAudio: true,
+    },
+  });
+
+  assert.equal(estWithSound.retainedDurationSec, 30);
+  assert.equal(estWithSound.targetAudioBitrateBps, 192_000);
+  assert.ok(estWithSound.audioPayloadBytes > 0);
+  assert.equal(estWithSound.targetAudioBitrateFormatted, "192 kbps");
+
+  // With Sound OFF (Muted)
+  const estMuted = estimateVideoExport({
+    sourceFileSize: 50_000_000,
+    sourceDurationSec: 60,
+    sourceWidth: 1920,
+    sourceHeight: 1080,
+    trimMode: "trim",
+    trimStart: 0,
+    trimEnd: 30,
+    exportConfig: {
+      quality: "high",
+      resolution: "1080p",
+      format: "mp4",
+      bitrateMbps: 10,
+      fps: 30,
+      keepAudio: false,
+    },
+  });
+
+  assert.equal(estMuted.targetAudioBitrateBps, 0);
+  assert.equal(estMuted.audioPayloadBytes, 0);
+  assert.equal(estMuted.targetAudioBitrateFormatted, "0 kbps (Muted)");
+  assert.ok(estMuted.estimatedTotalBytes < estWithSound.estimatedTotalBytes);
+});
+
+test("Video Export resolution calculation ensures even dimensions for WebCodecs hardware encoder", async () => {
+  const { calculateExportResolution } = await import("../src/features/player/trim-types.ts");
+
+  // Standard 1080p from 1920x1080
+  const res1 = calculateExportResolution(1920, 1080, "1080p");
+  assert.equal(res1.width % 2, 0);
+  assert.equal(res1.height % 2, 0);
+  assert.equal(res1.width, 1920);
+  assert.equal(res1.height, 1080);
+
+  // Odd input dimension scaled to 50%
+  const res2 = calculateExportResolution(1921, 1081, "scale-50");
+  assert.equal(res2.width % 2, 0);
+  assert.equal(res2.height % 2, 0);
+
+  // Custom dimensions with odd numbers
+  const resCustom = calculateExportResolution(1920, 1080, "custom", 1281, 719);
+  assert.equal(resCustom.width % 2, 0);
+  assert.equal(resCustom.height % 2, 0);
+});
+
+test("Video Cut & Trim duration calculation handles Trim and Cut modes", async () => {
+  const { calculateRetainedDuration } = await import("../src/features/media/estimation.ts");
+
+  // Trim mode: keep [10, 30] of 60s -> 20s retained
+  const trimDur = calculateRetainedDuration(60, "trim", 10, 30);
+  assert.equal(trimDur, 20);
+
+  // Cut mode: remove [10, 30] of 60s -> 40s retained
+  const cutDur = calculateRetainedDuration(60, "cut", 10, 30);
+  assert.equal(cutDur, 40);
+});
+
+
