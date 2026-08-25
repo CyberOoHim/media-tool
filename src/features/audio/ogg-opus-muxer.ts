@@ -227,6 +227,6 @@ export class OggOpusMuxer {
   public finalize(mimeType: "audio/ogg; codecs=opus" | "audio/opus" | "audio/ogg" = "audio/ogg; codecs=opus"): Blob {
     this.flushStagedPage(true);
     // Directly construct Blob from array of pages, avoiding duplicate buffer allocation
-    return new Blob(this.pages, { type: mimeType });
+    return new Blob(this.pages as BlobPart[], { type: mimeType });
   }
 }
