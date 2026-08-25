@@ -23,7 +23,6 @@ import type { AudioBitDepth, AudioExportFormat, AudioNormalizeMode } from "./typ
 
 export function AudioTrimControls() {
   const audio = useAudioStore((s) => s.audio);
-  const currentTime = useAudioStore((s) => s.currentTime);
   const duration = useAudioStore((s) => s.duration);
   const trimMode = useAudioStore((s) => s.trimMode);
   const trimStart = useAudioStore((s) => s.trimStart);
@@ -51,11 +50,11 @@ export function AudioTrimControls() {
     trimMode === "trim" ? (hasRange ? rangeDuration : duration) : Math.max(0, duration - rangeDuration);
 
   const markIn = () => {
-    setTrimStart(currentTime);
+    setTrimStart(useAudioStore.getState().currentTime);
   };
 
   const markOut = () => {
-    setTrimEnd(currentTime);
+    setTrimEnd(useAudioStore.getState().currentTime);
   };
 
   return (

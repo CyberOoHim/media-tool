@@ -20,7 +20,6 @@ interface AudioCueControlsProps {
 }
 
 export function AudioCueControls({ onSeek }: AudioCueControlsProps) {
-  const currentTime = useAudioStore((s) => s.currentTime);
   const cuePoints = useAudioStore((s) => s.cuePoints);
   const addCuePoint = useAudioStore((s) => s.addCuePoint);
   const removeCuePoint = useAudioStore((s) => s.removeCuePoint);
@@ -60,10 +59,11 @@ export function AudioCueControls({ onSeek }: AudioCueControlsProps) {
             size="sm"
             variant="default"
             className="h-6 px-2 text-[10px]"
-            onClick={() => addCuePoint(currentTime)}
+            onClick={() => addCuePoint(useAudioStore.getState().currentTime)}
+            title="Add Cue Marker at Current Playhead (M)"
           >
             <Plus className="size-3 mr-1" />
-            Add Marker @ {formatTimePrecise(currentTime)}
+            + Add Marker (M)
           </Button>
           {cuePoints.length > 0 && (
             <Button

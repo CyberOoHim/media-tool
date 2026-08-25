@@ -36,13 +36,32 @@ import { AudioVuMeter } from "./audio-vu-meter";
 import { AudioWaveform } from "./audio-waveform";
 import { useAudioStore } from "./store";
 
+function AudioTimecodeDisplay({ duration, sampleRate }: { duration: number; sampleRate?: number }) {
+  const currentTime = useAudioStore((s) => s.currentTime);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-baseline gap-1 rounded-sm border border-border bg-black px-2.5 py-1 font-mono shadow-inner">
+        <span className="text-base font-bold text-emerald-400">
+          {formatTimePrecise(currentTime)}
+        </span>
+        <span className="text-xs text-zinc-500">/</span>
+        <span className="text-xs text-zinc-400">{formatTimePrecise(duration)}</span>
+      </div>
+      {sampleRate && (
+        <span className="hidden sm:inline font-mono text-[9px] text-muted-foreground">
+          [{(currentTime * sampleRate).toLocaleString("en-US", { maximumFractionDigits: 0 })} smp]
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function AudioDeck() {
   const videoSession = useMediaStore((s) => s.video);
 
   const audio = useAudioStore((s) => s.audio);
   const ready = useAudioStore((s) => s.ready);
   const playing = useAudioStore((s) => s.playing);
-  const currentTime = useAudioStore((s) => s.currentTime);
   const duration = useAudioStore((s) => s.duration);
   const volume = useAudioStore((s) => s.volume);
   const gainBoost = useAudioStore((s) => s.gainBoost);
@@ -157,7 +176,7 @@ export function AudioDeck() {
 
       // Analyser Node
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 1024;
+      analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
 
       // Connect DSP chain:
@@ -416,17 +435,21 @@ export function AudioDeck() {
           stepMs(50);
           break;
         case "i":
-        case "I":
+        case "I": {
           e.preventDefault();
-          setTrimStart(currentTime);
-          toast(`Mark IN set: ${formatTimePrecise(currentTime)}`);
+          const cur = useAudioStore.getState().currentTime;
+          setTrimStart(cur);
+          toast(`Mark IN set: ${formatTimePrecise(cur)}`);
           break;
+        }
         case "o":
-        case "O":
+        case "O": {
           e.preventDefault();
-          setTrimEnd(currentTime);
-          toast(`Mark OUT set: ${formatTimePrecise(currentTime)}`);
+          const cur = useAudioStore.getState().currentTime;
+          setTrimEnd(cur);
+          toast(`Mark OUT set: ${formatTimePrecise(cur)}`);
           break;
+        }
         case "x":
         case "X":
           e.preventDefault();
@@ -434,10 +457,12 @@ export function AudioDeck() {
           toast("Trim range cleared");
           break;
         case "m":
-        case "M":
+        case "M": {
           e.preventDefault();
-          addCuePoint(currentTime);
+          const cur = useAudioStore.getState().currentTime;
+          addCuePoint(cur);
           break;
+        }
         case "l":
         case "L":
           e.preventDefault();
@@ -464,7 +489,6 @@ export function AudioDeck() {
     togglePlay,
     seekBy,
     stepMs,
-    currentTime,
     setTrimStart,
     setTrimEnd,
     clearTrimRange,
@@ -618,21 +642,7 @@ export function AudioDeck() {
         {/* Row 1: Timecode & Jog Dial & Direct Jump */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/40 pb-2">
           {/* Timecode Readout */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-baseline gap-1 rounded-sm border border-border bg-black px-2.5 py-1 font-mono shadow-inner">
-              <span className="text-base font-bold text-emerald-400">
-                {formatTimePrecise(currentTime)}
-              </span>
-              <span className="text-xs text-zinc-500">/</span>
-              <span className="text-xs text-zinc-400">{formatTimePrecise(duration)}</span>
-            </div>
-            {/* Sample Readout */}
-            {audio?.sampleRate && (
-              <span className="hidden sm:inline font-mono text-[9px] text-muted-foreground">
-                [{(currentTime * audio.sampleRate).toLocaleString("en-US", { maximumFractionDigits: 0 })} smp]
-              </span>
-            )}
-          </div>
+          <AudioTimecodeDisplay duration={duration} sampleRate={audio?.sampleRate} />
 
           {/* Precision Hardware Jog Dial */}
           <div className="flex items-center gap-2">

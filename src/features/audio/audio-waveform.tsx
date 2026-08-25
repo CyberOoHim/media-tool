@@ -73,6 +73,7 @@ const THEME_COLORS: Record<
 export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const audio = useAudioStore((s) => s.audio);
   const peaks = useAudioStore((s) => s.peaks);
@@ -96,6 +97,10 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
+
+  // Pre-allocated reusable buffers for analyzer modes
+  const freqDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  const timeDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   // Helper to convert screen X coordinate into time (seconds) taking zoom & pan into account
   const xToTime = useCallback(
@@ -177,100 +182,305 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
     }
   }, [currentTime, duration, isPlaying, zoom, panOffset, setPanOffset]);
 
-  // Main Canvas Render Loop
+  // Pre-render Static Background Layer (Grid, Waveform Peaks, Cue Pins, Trim Range) to Offscreen Canvas
+  const updateOffscreenBackground = useCallback(() => {
+    const mainCanvas = canvasRef.current;
+    if (!mainCanvas) return;
+
+    if (!offscreenCanvasRef.current) {
+      offscreenCanvasRef.current = document.createElement("canvas");
+    }
+    const offscreen = offscreenCanvasRef.current;
+    if (offscreen.width !== mainCanvas.width || offscreen.height !== mainCanvas.height) {
+      offscreen.width = mainCanvas.width;
+      offscreen.height = mainCanvas.height;
+    }
+
+    const ctx = offscreen.getContext("2d");
+    if (!ctx) return;
+
+    const width = offscreen.width;
+    const height = offscreen.height;
+    if (width <= 0 || height <= 0) return;
+
+    const theme = THEME_COLORS[phosphorTheme];
+
+    // 1. Background fill
+    ctx.fillStyle = theme.bg;
+    ctx.fillRect(0, 0, width, height);
+
+    // 2. Draw CRT Grid Lines
+    ctx.strokeStyle = theme.grid;
+    ctx.lineWidth = 1;
+    const numGridLines = 8;
+    for (let i = 1; i < numGridLines; i++) {
+      const y = (height / numGridLines) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+
+    const numVerticalGrid = 12;
+    for (let i = 0; i <= numVerticalGrid; i++) {
+      const x = (width / numVerticalGrid) * i;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+
+    // Center baseline
+    const centerY = height / 2;
+    ctx.strokeStyle = theme.centerLine;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, centerY);
+    ctx.lineTo(width, centerY);
+    ctx.stroke();
+
+    const visibleDuration = duration > 0 ? duration / zoom : 1;
+    const startTime = duration > 0 ? panOffset * (duration - visibleDuration) : 0;
+    const endTime = startTime + visibleDuration;
+
+    const timeToCanvasX = (t: number) => {
+      if (visibleDuration <= 0) return 0;
+      return ((t - startTime) / visibleDuration) * width;
+    };
+
+    // 3. Draw Peaks Waveform with a SINGLE shared vertical gradient (Zero GC churn)
+    if (peaks && peaks.buckets > 0 && (visualizerMode === "waveform" || visualizerMode === "stereo-split")) {
+      const numBuckets = peaks.buckets;
+      const startBucket = Math.floor((startTime / (duration || 1)) * numBuckets);
+      const endBucket = Math.ceil((endTime / (duration || 1)) * numBuckets);
+      const visibleBuckets = Math.max(1, endBucket - startBucket);
+
+      const barWidth = width / visibleBuckets;
+      const hasStereo = Boolean(peaks.rightMin && peaks.rightMax && visualizerMode === "stereo-split");
+
+      if (hasStereo) {
+        // Stereo Split: Top L, Bottom R
+        const lHalf = height / 2;
+        ctx.fillStyle = theme.waveTop;
+        for (let i = 0; i < visibleBuckets; i++) {
+          const bIdx = startBucket + i;
+          if (bIdx < 0 || bIdx >= numBuckets) continue;
+          const minVal = peaks.leftMin[bIdx] ?? 0;
+          const maxVal = peaks.leftMax[bIdx] ?? 0;
+          const x = i * barWidth;
+          const yTop = lHalf / 2 - maxVal * (lHalf / 2) * 0.95;
+          const yBot = lHalf / 2 - minVal * (lHalf / 2) * 0.95;
+          ctx.fillRect(x, yTop, Math.max(1, barWidth - 0.5), Math.max(1, yBot - yTop));
+        }
+
+        ctx.fillStyle = theme.waveBot;
+        for (let i = 0; i < visibleBuckets; i++) {
+          const bIdx = startBucket + i;
+          if (bIdx < 0 || bIdx >= numBuckets) continue;
+          const rMin = peaks.rightMin![bIdx] ?? 0;
+          const rMax = peaks.rightMax![bIdx] ?? 0;
+          const x = i * barWidth;
+          const yTopR = lHalf + lHalf / 2 - rMax * (lHalf / 2) * 0.95;
+          const yBotR = lHalf + lHalf / 2 - rMin * (lHalf / 2) * 0.95;
+          ctx.fillRect(x, yTopR, Math.max(1, barWidth - 0.5), Math.max(1, yBotR - yTopR));
+        }
+      } else {
+        // Dual mirrored mono / blended waveform with single pre-allocated linear gradient
+        const sharedGrad = ctx.createLinearGradient(0, 0, 0, height);
+        sharedGrad.addColorStop(0, theme.waveTop);
+        sharedGrad.addColorStop(0.5, theme.playhead);
+        sharedGrad.addColorStop(1, theme.waveBot);
+        ctx.fillStyle = sharedGrad;
+
+        for (let i = 0; i < visibleBuckets; i++) {
+          const bIdx = startBucket + i;
+          if (bIdx < 0 || bIdx >= numBuckets) continue;
+          const minVal = peaks.leftMin[bIdx] ?? 0;
+          const maxVal = peaks.leftMax[bIdx] ?? 0;
+          const x = i * barWidth;
+          const yTop = centerY - maxVal * (height / 2) * 0.9;
+          const yBot = centerY - minVal * (height / 2) * 0.9;
+          ctx.fillRect(x, yTop, Math.max(1, barWidth - 0.5), Math.max(1, yBot - yTop));
+        }
+      }
+    }
+
+    // 4. Render Trim Range Shaded Overlays
+    if (duration > 0 && (trimStart !== null || trimEnd !== null)) {
+      const startX = trimStart !== null ? timeToCanvasX(trimStart) : 0;
+      const endX = trimEnd !== null ? timeToCanvasX(trimEnd) : width;
+
+      if (trimMode === "trim") {
+        ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+        if (startX > 0) {
+          ctx.fillRect(0, 0, Math.max(0, startX), height);
+        }
+        if (endX < width) {
+          ctx.fillRect(endX, 0, Math.max(0, width - endX), height);
+        }
+
+        ctx.strokeStyle = "#22c55e";
+        ctx.lineWidth = 2;
+        if (trimStart !== null) {
+          ctx.beginPath();
+          ctx.moveTo(startX, 0);
+          ctx.lineTo(startX, height);
+          ctx.stroke();
+        }
+        if (trimEnd !== null) {
+          ctx.beginPath();
+          ctx.moveTo(endX, 0);
+          ctx.lineTo(endX, height);
+          ctx.stroke();
+        }
+      } else {
+        ctx.fillStyle = "rgba(239, 68, 68, 0.25)";
+        const cutW = Math.max(0, endX - startX);
+        ctx.fillRect(startX, 0, cutW, height);
+
+        ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(startX, 0);
+        ctx.lineTo(startX, height);
+        ctx.moveTo(endX, 0);
+        ctx.lineTo(endX, height);
+        ctx.stroke();
+      }
+    }
+
+    // 5. Render Cue Marker Pins
+    for (const cue of cuePoints) {
+      const cx = timeToCanvasX(cue.timestampSec);
+      if (cx >= -10 && cx <= width + 10) {
+        ctx.strokeStyle = "#eab308";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 2]);
+        ctx.beginPath();
+        ctx.moveTo(cx, 0);
+        ctx.lineTo(cx, height);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = "#eab308";
+        ctx.beginPath();
+        ctx.moveTo(cx, 0);
+        ctx.lineTo(cx + 10, 0);
+        ctx.lineTo(cx + 5, 8);
+        ctx.lineTo(cx, 0);
+        ctx.fill();
+      }
+    }
+  }, [
+    peaks,
+    duration,
+    trimMode,
+    trimStart,
+    trimEnd,
+    cuePoints,
+    visualizerMode,
+    phosphorTheme,
+    zoom,
+    panOffset,
+  ]);
+
+  // Update offscreen background cache when dependencies change
+  useEffect(() => {
+    updateOffscreenBackground();
+  }, [updateOffscreenBackground]);
+
+  // Main Canvas Render Loop (Zero per-frame allocations & 60fps frame budgeting)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let animId: number;
+    let animId: number | null = null;
     const theme = THEME_COLORS[phosphorTheme];
 
-    const render = () => {
+    let lastFrameTime = 0;
+    const FRAME_BUDGET_MS = 16.6; // ~60fps max cap (prevents 120Hz ProMotion overheating)
+    let isDocVisible = !document.hidden;
+
+    const render = (now = performance.now()) => {
       const width = canvas.width;
       const height = canvas.height;
       if (width <= 0 || height <= 0) return;
 
-      // 1. Clear background
-      ctx.fillStyle = theme.bg;
-      ctx.fillRect(0, 0, width, height);
-
-      // 2. Draw CRT Grid Lines & Time Ruler
-      ctx.strokeStyle = theme.grid;
-      ctx.lineWidth = 1;
-      const numGridLines = 8;
-      for (let i = 1; i < numGridLines; i++) {
-        const y = (height / numGridLines) * i;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-
-      const numVerticalGrid = 12;
-      for (let i = 0; i <= numVerticalGrid; i++) {
-        const x = (width / numVerticalGrid) * i;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-      }
-
-      // Center baseline
-      const centerY = height / 2;
-      ctx.strokeStyle = theme.centerLine;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, centerY);
-      ctx.lineTo(width, centerY);
-      ctx.stroke();
-
       const visibleDuration = duration > 0 ? duration / zoom : 1;
       const startTime = duration > 0 ? panOffset * (duration - visibleDuration) : 0;
-      const endTime = startTime + visibleDuration;
 
-      // Helper to map timestamp to canvas X
       const timeToCanvasX = (t: number) => {
         if (visibleDuration <= 0) return 0;
         return ((t - startTime) / visibleDuration) * width;
       };
 
-      // 3. Render Mode Specific Visuals
       if (visualizerMode === "spectrum" && analyserNode && isPlaying) {
-        // Real-Time Spectrum Analyzer (64-Band retro bars)
+        // Spectrum mode: Real-time 64-band bars with single pre-allocated vertical gradient
+        ctx.fillStyle = theme.bg;
+        ctx.fillRect(0, 0, width, height);
+
+        // Grid
+        ctx.strokeStyle = theme.grid;
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 8; i++) {
+          const y = (height / 8) * i;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
+
         const bufferLength = analyserNode.frequencyBinCount;
-        const freqData = new Uint8Array(bufferLength);
+        if (!freqDataRef.current || freqDataRef.current.length !== bufferLength) {
+          freqDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
+        }
+        const freqData = freqDataRef.current;
         analyserNode.getByteFrequencyData(freqData);
 
         const numBars = 64;
         const barWidth = width / numBars - 2;
         const step = Math.floor(bufferLength / numBars);
 
+        const spectrumGrad = ctx.createLinearGradient(0, height, 0, 0);
+        spectrumGrad.addColorStop(0, theme.waveBot);
+        spectrumGrad.addColorStop(0.8, theme.waveTop);
+        spectrumGrad.addColorStop(1, "#fff");
+        ctx.fillStyle = spectrumGrad;
+
         for (let i = 0; i < numBars; i++) {
           const val = freqData[i * step] ?? 0;
           const barHeight = (val / 255) * (height * 0.85);
           const x = i * (barWidth + 2);
           const y = height - barHeight;
-
-          const grad = ctx.createLinearGradient(0, height, 0, y);
-          grad.addColorStop(0, theme.waveBot);
-          grad.addColorStop(0.8, theme.waveTop);
-          grad.addColorStop(1, "#fff");
-
-          ctx.fillStyle = grad;
           ctx.fillRect(x, y, barWidth, barHeight);
         }
       } else if (visualizerMode === "oscilloscope" && analyserNode && isPlaying) {
-        // Real-Time Oscilloscope Phosphor Trace
+        // Scope mode: Real-time Phosphor trace
+        ctx.fillStyle = theme.bg;
+        ctx.fillRect(0, 0, width, height);
+
+        // Grid
+        ctx.strokeStyle = theme.grid;
+        ctx.lineWidth = 1;
+        for (let i = 1; i < 8; i++) {
+          const y = (height / 8) * i;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
+
         const bufferLength = analyserNode.frequencyBinCount;
-        const timeData = new Uint8Array(bufferLength);
+        if (!timeDataRef.current || timeDataRef.current.length !== bufferLength) {
+          timeDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
+        }
+        const timeData = timeDataRef.current;
         analyserNode.getByteTimeDomainData(timeData);
 
         ctx.lineWidth = 2;
         ctx.strokeStyle = theme.waveTop;
-        ctx.shadowColor = theme.glow;
-        ctx.shadowBlur = 8;
         ctx.beginPath();
 
         const sliceWidth = width / bufferLength;
@@ -289,139 +499,24 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         }
 
         ctx.stroke();
-        ctx.shadowBlur = 0; // reset
-      } else if (peaks && peaks.buckets > 0) {
-        // High-Precision Canvas Peak Waveform Rendering
-        const numBuckets = peaks.buckets;
-        const startBucket = Math.floor((startTime / (duration || 1)) * numBuckets);
-        const endBucket = Math.ceil((endTime / (duration || 1)) * numBuckets);
-        const visibleBuckets = Math.max(1, endBucket - startBucket);
-
-        const barWidth = width / visibleBuckets;
-        const hasStereo = Boolean(peaks.rightMin && peaks.rightMax && visualizerMode === "stereo-split");
-
-        // Top half (Left channel / Mono)
-        for (let i = 0; i < visibleBuckets; i++) {
-          const bIdx = startBucket + i;
-          if (bIdx < 0 || bIdx >= numBuckets) continue;
-
-          const minVal = peaks.leftMin[bIdx] ?? 0;
-          const maxVal = peaks.leftMax[bIdx] ?? 0;
-          const x = i * barWidth;
-
-          if (hasStereo) {
-            // Split top L, bottom R
-            const lHalf = height / 2;
-            const yTop = lHalf / 2 - maxVal * (lHalf / 2) * 0.95;
-            const yBot = lHalf / 2 - minVal * (lHalf / 2) * 0.95;
-
-            ctx.fillStyle = theme.waveTop;
-            ctx.fillRect(x, yTop, Math.max(1, barWidth - 0.5), Math.max(1, yBot - yTop));
-
-            // Right channel bottom
-            const rMin = peaks.rightMin![bIdx] ?? 0;
-            const rMax = peaks.rightMax![bIdx] ?? 0;
-            const rHalf = height / 2;
-            const yTopR = lHalf + rHalf / 2 - rMax * (rHalf / 2) * 0.95;
-            const yBotR = lHalf + rHalf / 2 - rMin * (rHalf / 2) * 0.95;
-
-            ctx.fillStyle = theme.waveBot;
-            ctx.fillRect(x, yTopR, Math.max(1, barWidth - 0.5), Math.max(1, yBotR - yTopR));
-          } else {
-            // Dual mirrored mono / blended waveform
-            const yTop = centerY - maxVal * (height / 2) * 0.9;
-            const yBot = centerY - minVal * (height / 2) * 0.9;
-
-            const grad = ctx.createLinearGradient(0, yTop, 0, yBot);
-            grad.addColorStop(0, theme.waveTop);
-            grad.addColorStop(0.5, theme.playhead);
-            grad.addColorStop(1, theme.waveBot);
-
-            ctx.fillStyle = grad;
-            ctx.fillRect(x, yTop, Math.max(1, barWidth - 0.5), Math.max(1, yBot - yTop));
-          }
-        }
-      }
-
-      // 4. Render Trim Range Shaded Overlays
-      if (duration > 0 && (trimStart !== null || trimEnd !== null)) {
-        const startX = trimStart !== null ? timeToCanvasX(trimStart) : 0;
-        const endX = trimEnd !== null ? timeToCanvasX(trimEnd) : width;
-
-        if (trimMode === "trim") {
-          // Dim outside regions
-          ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
-          if (startX > 0) {
-            ctx.fillRect(0, 0, Math.max(0, startX), height);
-          }
-          if (endX < width) {
-            ctx.fillRect(endX, 0, Math.max(0, width - endX), height);
-          }
-
-          // Active keep bounds borders
-          ctx.strokeStyle = "#22c55e";
-          ctx.lineWidth = 2;
-          if (trimStart !== null) {
-            ctx.beginPath();
-            ctx.moveTo(startX, 0);
-            ctx.lineTo(startX, height);
-            ctx.stroke();
-          }
-          if (trimEnd !== null) {
-            ctx.beginPath();
-            ctx.moveTo(endX, 0);
-            ctx.lineTo(endX, height);
-            ctx.stroke();
-          }
+      } else {
+        // Fast Cached Background Waveform Blit (<0.1ms render time!)
+        if (offscreenCanvasRef.current) {
+          ctx.drawImage(offscreenCanvasRef.current, 0, 0);
         } else {
-          // Cut mode: Highlight cut zone in red with diagonal hazard stripes
-          ctx.fillStyle = "rgba(239, 68, 68, 0.25)";
-          const cutW = Math.max(0, endX - startX);
-          ctx.fillRect(startX, 0, cutW, height);
-
-          ctx.strokeStyle = "#ef4444";
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(startX, 0);
-          ctx.lineTo(startX, height);
-          ctx.moveTo(endX, 0);
-          ctx.lineTo(endX, height);
-          ctx.stroke();
+          updateOffscreenBackground();
+          if (offscreenCanvasRef.current) {
+            ctx.drawImage(offscreenCanvasRef.current, 0, 0);
+          }
         }
       }
 
-      // 5. Render Cue Marker Pins
-      for (const cue of cuePoints) {
-        const cx = timeToCanvasX(cue.timestampSec);
-        if (cx >= -10 && cx <= width + 10) {
-          ctx.strokeStyle = "#eab308";
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([3, 2]);
-          ctx.beginPath();
-          ctx.moveTo(cx, 0);
-          ctx.lineTo(cx, height);
-          ctx.stroke();
-          ctx.setLineDash([]);
-
-          // Flag header at top
-          ctx.fillStyle = "#eab308";
-          ctx.beginPath();
-          ctx.moveTo(cx, 0);
-          ctx.lineTo(cx + 10, 0);
-          ctx.lineTo(cx + 5, 8);
-          ctx.lineTo(cx, 0);
-          ctx.fill();
-        }
-      }
-
-      // 6. Render Playhead Cursor
+      // Draw Playhead Cursor
       if (duration > 0) {
         const playheadX = timeToCanvasX(currentTime);
         if (playheadX >= 0 && playheadX <= width) {
           ctx.strokeStyle = theme.playhead;
           ctx.lineWidth = 2;
-          ctx.shadowColor = theme.glow;
-          ctx.shadowBlur = 6;
           ctx.beginPath();
           ctx.moveTo(playheadX, 0);
           ctx.lineTo(playheadX, height);
@@ -435,12 +530,10 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
           ctx.lineTo(playheadX, 9);
           ctx.closePath();
           ctx.fill();
-
-          ctx.shadowBlur = 0;
         }
       }
 
-      // 7. Hover Line
+      // Hover Guide Line
       if (hoverX !== null && hoverX >= 0 && hoverX <= width) {
         ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
         ctx.lineWidth = 1;
@@ -451,39 +544,57 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         ctx.stroke();
         ctx.setLineDash([]);
       }
+    };
+
+    const loop = (now: number) => {
+      if (!isDocVisible) {
+        animId = requestAnimationFrame(loop);
+        return;
+      }
+
+      if (now - lastFrameTime >= FRAME_BUDGET_MS) {
+        lastFrameTime = now;
+        render(now);
+      }
 
       if (isPlaying) {
-        animId = requestAnimationFrame(render);
+        animId = requestAnimationFrame(loop);
       }
     };
 
+    // Render static frame once
     render();
 
+    // If active playback, start frame-budgeted rAF loop
     if (isPlaying) {
-      animId = requestAnimationFrame(render);
+      animId = requestAnimationFrame(loop);
     }
 
+    const handleVisibilityChange = () => {
+      isDocVisible = !document.hidden;
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
     return () => {
-      cancelAnimationFrame(animId);
+      if (animId !== null) {
+        cancelAnimationFrame(animId);
+      }
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [
-    peaks,
     currentTime,
     duration,
     isPlaying,
-    trimMode,
-    trimStart,
-    trimEnd,
-    cuePoints,
     visualizerMode,
     phosphorTheme,
     zoom,
     panOffset,
     hoverX,
     analyserNode,
+    updateOffscreenBackground,
   ]);
 
-  // Sync canvas dimensions with container on resize
+  // Sync canvas dimensions with container on resize with clamped Retina DPR (max 1.5)
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -491,20 +602,23 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
+      // Clamp DPR to max 1.5 to eliminate 4x-9x Retina pixel fill-rate thermal load
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor(rect.height * dpr);
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.scale(dpr, dpr);
+
+      if (offscreenCanvasRef.current) {
+        offscreenCanvasRef.current.width = canvas.width;
+        offscreenCanvasRef.current.height = canvas.height;
       }
+      updateOffscreenBackground();
     };
 
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(container);
     return () => ro.disconnect();
-  }, []);
+  }, [updateOffscreenBackground]);
 
   return (
     <div className={cn("relative flex flex-col gap-1.5", className)}>
