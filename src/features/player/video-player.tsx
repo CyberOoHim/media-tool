@@ -7,6 +7,7 @@ import {
   FastForward,
   Layers,
   Maximize,
+  Music,
   Pause,
   Play,
   Rewind,
@@ -34,6 +35,7 @@ import { copyBlobToClipboard } from "@/features/media/clipboard";
 import { getCropAspectRatio, resolveCropTarget } from "@/features/media/crop";
 import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
+import { useAudioStore } from "@/features/audio/store";
 import {
   DEFAULT_TRANSFORM,
   calculateOrientedDimensions,
@@ -526,7 +528,20 @@ export function VideoPlayer() {
       action={
         videoSession ? (
           <div className="flex items-center gap-2">
-            <span className="max-w-[140px] truncate font-mono text-[11px] font-bold text-foreground sm:max-w-[220px]">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-[10px] font-mono border-signal/60 bg-signal/10 hover:bg-signal/20 text-foreground"
+              onClick={() => {
+                void useAudioStore.getState().extractFromVideoSession(videoSession.objectUrl, videoSession.fileName);
+              }}
+              title="Extract sound track to Deck-Audio"
+            >
+              <Music className="size-3 mr-1 text-signal" />
+              <span className="hidden sm:inline">Send to Audio Deck</span>
+              <span className="sm:hidden">Audio</span>
+            </Button>
+            <span className="max-w-[120px] truncate font-mono text-[11px] font-bold text-foreground sm:max-w-[180px]">
               {videoSession.fileName}
             </span>
             <DropZone

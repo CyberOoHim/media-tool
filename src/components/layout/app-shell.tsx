@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Film, Image as ImageIcon, LayoutGrid, ShieldCheck, Sparkles } from "lucide-react";
+import { Film, Image as ImageIcon, LayoutGrid, Music, ShieldCheck, Sparkles } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { ExpanderStorageControls } from "@/components/layout/deck-expander";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-dialog";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { to: "/", label: "Studio Deck", icon: LayoutGrid },
   { to: "/player", label: "Player Solo", icon: Film },
+  { to: "/audio", label: "Audio Solo", icon: Music },
   { to: "/bench", label: "Optimizer Solo", icon: ImageIcon },
 ] as const;
 
@@ -53,7 +54,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
               </div>
               <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground sm:block">
-                Player · Stills · Optimizer
+                Player · Audio · Stills · Optimizer
               </span>
             </div>
           </Link>

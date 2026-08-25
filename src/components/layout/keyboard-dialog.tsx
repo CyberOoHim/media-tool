@@ -4,17 +4,20 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
 const SHORTCUTS = [
-  { key: "Space", desc: "Play / Pause video" },
+  { key: "Space", desc: "Play / Pause deck (Video & Audio)" },
   { key: "← / →", desc: "Seek backward / forward 10s" },
-  { key: ", / .", desc: "Step frame backward / forward (1/30s)" },
+  { key: ", / .", desc: "Step frame / 50ms backward & forward" },
   { key: "[ / ]", desc: "Decrease / increase playback speed" },
+  { key: "I / O", desc: "Mark In / Mark Out bounds" },
+  { key: "X", desc: "Clear In / Out marker range" },
+  { key: "M", desc: "Add Cue Marker / Bookmark" },
+  { key: "L", desc: "Toggle range loop playback" },
   { key: "+ / -", desc: "Zoom UI font size in / out" },
   { key: "0", desc: "Reset UI font size zoom (100%)" },
   { key: "Shift + D", desc: "Switch Day / Dark theme" },
-  { key: "S", desc: "Snap frame to bench & filmstrip" },
+  { key: "S", desc: "Snap video frame to bench & filmstrip" },
   { key: "Shift + S", desc: "Burst capture (3 frames)" },
   { key: "C", desc: "Copy current frame to clipboard" },
-  { key: "M", desc: "Toggle audio mute" },
   { key: "F", desc: "Toggle fullscreen" },
 ];
 

@@ -1,6 +1,6 @@
 {
-  "name": "Video Tool",
-  "description": "Local video player, frame-accurate cut & trim with hardware WebCodecs export, frame capture, and image optimizer.",
+  "name": "Video & Audio Tool",
+  "description": "Local video & audio player, frame-accurate cut & trim with WebCodecs export, audio DSP equalizer & trim workstation, frame capture, and image optimizer.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

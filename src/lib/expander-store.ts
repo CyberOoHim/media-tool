@@ -12,7 +12,10 @@ export type ExpanderId =
   | "deck-bench-transform"
   | "deck-bench-budget"
   | "deck-bench-comparison"
-  | "deck-filmstrip-gallery";
+  | "deck-filmstrip-gallery"
+  | "deck-audio-cut-trim"
+  | "deck-audio-eq-dsp"
+  | "deck-audio-cue-points";
 
 export const DEFAULT_EXPANDER_STATES: Record<string, boolean> = {
   "deck-video-cut-trim": true,
@@ -23,6 +26,9 @@ export const DEFAULT_EXPANDER_STATES: Record<string, boolean> = {
   "deck-bench-budget": true,
   "deck-bench-comparison": true,
   "deck-filmstrip-gallery": true,
+  "deck-audio-cut-trim": true,
+  "deck-audio-eq-dsp": true,
+  "deck-audio-cue-points": true,
 };
 
 function readStorageStates(): Record<string, boolean> {
