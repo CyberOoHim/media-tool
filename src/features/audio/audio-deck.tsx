@@ -179,9 +179,8 @@ export function AudioDeck() {
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.8;
 
-      // Connect DSP chain:
-      // source -> lowCut -> f1 -> f2 -> f3 -> f4 -> f5 -> highCut -> compNode -> panNode -> gainNode -> analyser -> destination
-      source.connect(lowCutNode);
+      // Connect base DSP chain:
+      // lowCut -> f1 -> f2 -> f3 -> f4 -> f5 -> highCut -> compNode -> panNode -> gainNode -> analyser -> destination
       lowCutNode.connect(f1);
       f1.connect(f2);
       f2.connect(f3);
@@ -193,6 +192,9 @@ export function AudioDeck() {
       panNode.connect(gainNode);
       gainNode.connect(analyser);
       analyser.connect(ctx.destination);
+
+      // Default low-power direct routing: source -> panNode (bypasses 8 filters when flat)
+      source.connect(panNode);
 
       audioGraphRef.current = {
         source,
@@ -215,10 +217,37 @@ export function AudioDeck() {
     }
   }, []);
 
-  // Update Live Web Audio DSP Nodes whenever Store state changes
+  // Update Live Web Audio DSP Nodes & Dynamic Filter Bypass whenever Store state changes
   useEffect(() => {
     const graph = audioGraphRef.current;
     if (!graph) return;
+
+    // Check if any DSP filters or EQ processing are active
+    const isDspActive =
+      (!eqBypass &&
+        (eq.low80Hz !== 0 ||
+          eq.lowMid300Hz !== 0 ||
+          eq.mid1kHz !== 0 ||
+          eq.highMid3kHz !== 0 ||
+          eq.high10kHz !== 0)) ||
+      lowCut.enabled ||
+      highCut.enabled ||
+      (dynamics.enabled && !dynamicsBypass);
+
+    // Dynamic routing bypass: if DSP is completely flat/inactive, route source directly to panNode
+    // This stops Apple CoreAudio/WebKit from running 8 biquad IIR filters + compressor equations
+    if (graph.source) {
+      try {
+        graph.source.disconnect();
+        if (isDspActive) {
+          graph.source.connect(graph.lowCutNode);
+        } else {
+          graph.source.connect(graph.panNode);
+        }
+      } catch {
+        // Safe fallback
+      }
+    }
 
     // EQ bands
     if (eqBypass) {

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Gauge, Moon, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface AudioVuMeterProps {
@@ -15,6 +16,9 @@ function dbToNormalized(db: number): number {
 }
 
 export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMeterProps) {
+  // Meter power mode: 'normal' (25fps, 4x stride), 'eco' (15fps, 8x stride), 'off' (100% suspended)
+  const [meterPowerMode, setMeterPowerMode] = useState<"normal" | "eco" | "off">("normal");
+
   const barLRef = useRef<HTMLDivElement>(null);
   const barRRef = useRef<HTMLDivElement>(null);
   const peakLRef = useRef<HTMLDivElement>(null);
@@ -47,7 +51,7 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
       }
     };
 
-    if (!analyserNode || !isPlaying) {
+    if (!analyserNode || !isPlaying || meterPowerMode === "off") {
       resetDisplay();
       return;
     }
@@ -60,8 +64,10 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
 
     let animId: number | null = null;
     let lastFrameTime = 0;
-    // Frame throttle: budget ~30-60fps (min 16ms between frames) to prevent 120Hz ProMotion CPU heat
-    const FRAME_BUDGET_MS = 16.6;
+
+    // Ballistics frame throttle: 25fps (40ms) for normal, 15fps (66ms) for eco mode
+    const frameBudgetMs = meterPowerMode === "eco" ? 66.6 : 40.0;
+    const stride = meterPowerMode === "eco" ? 8 : 4; // Sub-sample loop iterations
 
     let isDocumentVisible = !document.hidden;
 
@@ -71,49 +77,52 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
         return;
       }
 
-      if (now - lastFrameTime >= FRAME_BUDGET_MS) {
+      if (now - lastFrameTime >= frameBudgetMs) {
         lastFrameTime = now;
         analyserNode.getFloatTimeDomainData(timeDomainData);
 
-        // Fast RMS & Peak calculation
+        // Ultra-light Sub-Sampled RMS & Peak calculation (only 32-64 iterations!)
         let sumSquaresL = 0;
         let peakL = 0;
         let sumSquaresR = 0;
         let peakR = 0;
+        let samplesL = 0;
+        let samplesR = 0;
 
-        const halfLength = bufferLength >> 1;
-
-        for (let i = 0; i < bufferLength; i++) {
+        for (let i = 0; i < bufferLength; i += stride) {
           const val = timeDomainData[i] ?? 0;
           const absVal = Math.abs(val);
 
           if ((i & 1) === 0) {
             sumSquaresL += val * val;
             if (absVal > peakL) peakL = absVal;
+            samplesL++;
           } else {
             sumSquaresR += val * val;
             if (absVal > peakR) peakR = absVal;
+            samplesR++;
           }
         }
 
-        const rmsL = Math.sqrt(sumSquaresL / (halfLength || 1));
-        const rmsR = Math.sqrt(sumSquaresR / (halfLength || 1));
+        const rmsL = Math.sqrt(sumSquaresL / (samplesL || 1));
+        const rmsR = Math.sqrt(sumSquaresR / (samplesR || 1));
 
-        // Fast dB conversion
+        // Convert to dB (-60 dB floor)
         const currentDbL = rmsL > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsL * 1.6)) : -60;
         const currentDbR = rmsR > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsR * 1.6)) : -60;
 
-        // Peak Hold with Decay
+        // Peak Hold with Decay (decay adjusted for 25/15 fps)
+        const decayRate = meterPowerMode === "eco" ? 1.5 : 1.0;
         if (currentDbL > leftPeakRef.current) {
           leftPeakRef.current = currentDbL;
         } else {
-          leftPeakRef.current = Math.max(-60, leftPeakRef.current - 0.5);
+          leftPeakRef.current = Math.max(-60, leftPeakRef.current - decayRate);
         }
 
         if (currentDbR > rightPeakRef.current) {
           rightPeakRef.current = currentDbR;
         } else {
-          rightPeakRef.current = Math.max(-60, rightPeakRef.current - 0.5);
+          rightPeakRef.current = Math.max(-60, rightPeakRef.current - decayRate);
         }
 
         // Clipping Detection
@@ -135,17 +144,17 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
           }, 800);
         }
 
-        // Direct GPU-accelerated DOM updates (zero React re-render overhead)
+        // Direct GPU-accelerated DOM transforms (zero React re-render overhead)
         const normL = dbToNormalized(currentDbL);
         const normR = dbToNormalized(currentDbR);
         const normPeakL = dbToNormalized(leftPeakRef.current);
         const normPeakR = dbToNormalized(rightPeakRef.current);
 
         if (barLRef.current) {
-          barLRef.current.style.transform = `scaleX(${normL.toFixed(4)})`;
+          barLRef.current.style.transform = `scaleX(${normL.toFixed(3)})`;
         }
         if (barRRef.current) {
-          barRRef.current.style.transform = `scaleX(${normR.toFixed(4)})`;
+          barRRef.current.style.transform = `scaleX(${normR.toFixed(3)})`;
         }
 
         if (peakLRef.current) {
@@ -190,7 +199,13 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       resetDisplay();
     };
-  }, [analyserNode, isPlaying]);
+  }, [analyserNode, isPlaying, meterPowerMode]);
+
+  const cyclePowerMode = () => {
+    if (meterPowerMode === "normal") setMeterPowerMode("eco");
+    else if (meterPowerMode === "eco") setMeterPowerMode("off");
+    else setMeterPowerMode("normal");
+  };
 
   return (
     <div
@@ -201,7 +216,27 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
     >
       {/* VU Meter Header */}
       <div className="flex items-center justify-between px-0.5 text-muted-foreground">
-        <span className="font-bold tracking-widest text-[8px] uppercase text-zinc-400">VU LEVEL</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-bold tracking-widest text-[8px] uppercase text-zinc-400">VU LEVEL</span>
+          {/* One-tap Power/Eco Mode Switch */}
+          <button
+            type="button"
+            onClick={cyclePowerMode}
+            className={cn(
+              "flex items-center gap-0.5 rounded px-1 py-0.2 text-[7px] font-bold uppercase transition-colors",
+              meterPowerMode === "normal" && "bg-zinc-800 text-zinc-300 hover:bg-zinc-700",
+              meterPowerMode === "eco" && "bg-emerald-950 text-emerald-400 border border-emerald-800",
+              meterPowerMode === "off" && "bg-amber-950 text-amber-400 border border-amber-800",
+            )}
+            title="Cycle VU Meter power mode: Normal (25fps) -> Eco (15fps) -> Sleep (0% CPU)"
+          >
+            {meterPowerMode === "normal" && <Gauge className="size-2" />}
+            {meterPowerMode === "eco" && <Zap className="size-2" />}
+            {meterPowerMode === "off" && <Moon className="size-2" />}
+            <span>{meterPowerMode === "normal" ? "25fps" : meterPowerMode === "eco" ? "ECO" : "SLEEP"}</span>
+          </button>
+        </div>
+
         <div className="flex items-center gap-2">
           <span ref={textLRef} className="text-[8px] text-zinc-500">
             L: -∞
@@ -237,7 +272,6 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
       <div className="flex items-center gap-1.5">
         <span className="w-3 text-center font-bold text-zinc-400">L</span>
         <div className="relative h-2.5 flex-1 overflow-hidden rounded-xs bg-zinc-900/90 border border-zinc-800">
-          {/* Segment Gradient Background Bar with hardware-accelerated scaleX transform */}
           <div
             ref={barLRef}
             className="h-full w-full will-change-transform"
@@ -247,7 +281,6 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
               background: "linear-gradient(90deg, #10b981 0%, #22c55e 65%, #eab308 82%, #ef4444 95%)",
             }}
           />
-          {/* Peak Hold Tick */}
           <div
             ref={peakLRef}
             className="pointer-events-none absolute top-0 bottom-0 w-[2px] bg-white/90 shadow-[0_0_2px_#fff] opacity-0 will-change-transform"
@@ -268,7 +301,6 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
               background: "linear-gradient(90deg, #10b981 0%, #22c55e 65%, #eab308 82%, #ef4444 95%)",
             }}
           />
-          {/* Peak Hold Tick */}
           <div
             ref={peakRRef}
             className="pointer-events-none absolute top-0 bottom-0 w-[2px] bg-white/90 shadow-[0_0_2px_#fff] opacity-0 will-change-transform"

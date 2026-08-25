@@ -73,11 +73,11 @@ const THEME_COLORS: Record<
 export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const playheadElRef = useRef<HTMLDivElement>(null);
+  const timecodeHudRef = useRef<HTMLDivElement>(null);
 
   const audio = useAudioStore((s) => s.audio);
   const peaks = useAudioStore((s) => s.peaks);
-  const currentTime = useAudioStore((s) => s.currentTime);
   const duration = useAudioStore((s) => s.duration);
   const isPlaying = useAudioStore((s) => s.playing);
   const trimMode = useAudioStore((s) => s.trimMode);
@@ -105,9 +105,9 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
   // Helper to convert screen X coordinate into time (seconds) taking zoom & pan into account
   const xToTime = useCallback(
     (clientX: number) => {
-      const canvas = canvasRef.current;
-      if (!canvas || duration <= 0) return 0;
-      const rect = canvas.getBoundingClientRect();
+      const container = containerRef.current;
+      if (!container || duration <= 0) return 0;
+      const rect = container.getBoundingClientRect();
       const relX = Math.max(0, Math.min(rect.width, clientX - rect.left));
       const normalizedX = relX / rect.width;
 
@@ -128,9 +128,9 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
+    const container = containerRef.current;
+    if (container) {
+      const rect = container.getBoundingClientRect();
       setHoverX(e.clientX - rect.left);
     }
     const t = xToTime(e.clientX);
@@ -166,41 +166,83 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
     }
   };
 
+  // Direct GPU-accelerated Playhead Position & Timecode HUD update (0 React re-renders, 0 canvas redraws!)
+  useEffect(() => {
+    const updatePlayhead = (state: {
+      currentTime: number;
+      duration: number;
+      zoom: number;
+      panOffset: number;
+    }) => {
+      const container = containerRef.current;
+      const playhead = playheadElRef.current;
+      const hud = timecodeHudRef.current;
+      if (!container || state.duration <= 0) return;
+
+      const width = container.clientWidth;
+      const visibleDuration = state.duration / state.zoom;
+      const startTime = state.panOffset * (state.duration - visibleDuration);
+      const relX = ((state.currentTime - startTime) / (visibleDuration || 1)) * width;
+
+      if (playhead) {
+        if (relX >= 0 && relX <= width) {
+          playhead.style.opacity = "1";
+          playhead.style.transform = `translateX(${relX.toFixed(1)}px)`;
+        } else {
+          playhead.style.opacity = "0";
+        }
+      }
+
+      if (hud) {
+        hud.textContent = `${formatTimePrecise(state.currentTime)} / ${formatTimePrecise(state.duration)}`;
+      }
+    };
+
+    // Initial sync
+    const st = useAudioStore.getState();
+    updatePlayhead(st);
+
+    // Subscribe to playhead changes without React component re-render
+    const unsub = useAudioStore.subscribe((state) => {
+      updatePlayhead(state);
+    });
+
+    return () => unsub();
+  }, []);
+
   // Keep playhead visible when zoomed in
   useEffect(() => {
-    if (zoom > 1 && duration > 0 && isPlaying) {
-      const visibleDuration = duration / zoom;
-      const currentStart = panOffset * (duration - visibleDuration);
-      const currentEnd = currentStart + visibleDuration;
+    const checkPan = () => {
+      const st = useAudioStore.getState();
+      if (st.zoom > 1 && st.duration > 0 && isPlaying) {
+        const visibleDuration = st.duration / st.zoom;
+        const currentStart = st.panOffset * (st.duration - visibleDuration);
+        const currentEnd = currentStart + visibleDuration;
 
-      if (currentTime > currentEnd - visibleDuration * 0.1 || currentTime < currentStart) {
-        const nextStart = Math.max(0, currentTime - visibleDuration * 0.2);
-        const maxStart = duration - visibleDuration;
-        const nextOffset = maxStart > 0 ? nextStart / maxStart : 0;
-        setPanOffset(Math.max(0, Math.min(1, nextOffset)));
+        if (st.currentTime > currentEnd - visibleDuration * 0.1 || st.currentTime < currentStart) {
+          const nextStart = Math.max(0, st.currentTime - visibleDuration * 0.2);
+          const maxStart = st.duration - visibleDuration;
+          const nextOffset = maxStart > 0 ? nextStart / maxStart : 0;
+          setPanOffset(Math.max(0, Math.min(1, nextOffset)));
+        }
       }
-    }
-  }, [currentTime, duration, isPlaying, zoom, panOffset, setPanOffset]);
+    };
 
-  // Pre-render Static Background Layer (Grid, Waveform Peaks, Cue Pins, Trim Range) to Offscreen Canvas
-  const updateOffscreenBackground = useCallback(() => {
-    const mainCanvas = canvasRef.current;
-    if (!mainCanvas) return;
-
-    if (!offscreenCanvasRef.current) {
-      offscreenCanvasRef.current = document.createElement("canvas");
+    if (isPlaying && zoom > 1) {
+      const interval = setInterval(checkPan, 100);
+      return () => clearInterval(interval);
     }
-    const offscreen = offscreenCanvasRef.current;
-    if (offscreen.width !== mainCanvas.width || offscreen.height !== mainCanvas.height) {
-      offscreen.width = mainCanvas.width;
-      offscreen.height = mainCanvas.height;
-    }
+  }, [isPlaying, zoom, setPanOffset]);
 
-    const ctx = offscreen.getContext("2d");
+  // Static Waveform Canvas Draw (Executed ONCE on state/theme/zoom/pan/resize change)
+  const drawStaticWaveform = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const width = offscreen.width;
-    const height = offscreen.height;
+    const width = canvas.width;
+    const height = canvas.height;
     if (width <= 0 || height <= 0) return;
 
     const theme = THEME_COLORS[phosphorTheme];
@@ -212,18 +254,16 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
     // 2. Draw CRT Grid Lines
     ctx.strokeStyle = theme.grid;
     ctx.lineWidth = 1;
-    const numGridLines = 8;
-    for (let i = 1; i < numGridLines; i++) {
-      const y = (height / numGridLines) * i;
+    for (let i = 1; i < 8; i++) {
+      const y = (height / 8) * i;
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(width, y);
       ctx.stroke();
     }
 
-    const numVerticalGrid = 12;
-    for (let i = 0; i <= numVerticalGrid; i++) {
-      const x = (width / numVerticalGrid) * i;
+    for (let i = 0; i <= 12; i++) {
+      const x = (width / 12) * i;
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, height);
@@ -249,7 +289,7 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
     };
 
     // 3. Draw Peaks Waveform with a SINGLE shared vertical gradient (Zero GC churn)
-    if (peaks && peaks.buckets > 0 && (visualizerMode === "waveform" || visualizerMode === "stereo-split")) {
+    if (peaks && peaks.buckets > 0) {
       const numBuckets = peaks.buckets;
       const startBucket = Math.floor((startTime / (duration || 1)) * numBuckets);
       const endBucket = Math.ceil((endTime / (duration || 1)) * numBuckets);
@@ -384,13 +424,23 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
     panOffset,
   ]);
 
-  // Update offscreen background cache when dependencies change
+  // Update static canvas whenever static state changes (Zero continuous draws!)
   useEffect(() => {
-    updateOffscreenBackground();
-  }, [updateOffscreenBackground]);
+    if (visualizerMode === "waveform" || visualizerMode === "stereo-split") {
+      drawStaticWaveform();
+    }
+  }, [drawStaticWaveform, visualizerMode]);
 
-  // Main Canvas Render Loop (Zero per-frame allocations & 60fps frame budgeting)
+  // Live Visualizer Loop (Spectrum & Scope only) capped at 25fps
   useEffect(() => {
+    if (visualizerMode !== "spectrum" && visualizerMode !== "oscilloscope") {
+      return;
+    }
+    if (!isPlaying || !analyserNode) {
+      drawStaticWaveform();
+      return;
+    }
+
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -398,201 +448,122 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
 
     let animId: number | null = null;
     const theme = THEME_COLORS[phosphorTheme];
-
     let lastFrameTime = 0;
-    const FRAME_BUDGET_MS = 16.6; // ~60fps max cap (prevents 120Hz ProMotion overheating)
+    const FRAME_BUDGET_MS = 40.0; // 25fps live visualizer cap for cool iPad operation
     let isDocVisible = !document.hidden;
 
-    const render = (now = performance.now()) => {
-      const width = canvas.width;
-      const height = canvas.height;
-      if (width <= 0 || height <= 0) return;
-
-      const visibleDuration = duration > 0 ? duration / zoom : 1;
-      const startTime = duration > 0 ? panOffset * (duration - visibleDuration) : 0;
-
-      const timeToCanvasX = (t: number) => {
-        if (visibleDuration <= 0) return 0;
-        return ((t - startTime) / visibleDuration) * width;
-      };
-
-      if (visualizerMode === "spectrum" && analyserNode && isPlaying) {
-        // Spectrum mode: Real-time 64-band bars with single pre-allocated vertical gradient
-        ctx.fillStyle = theme.bg;
-        ctx.fillRect(0, 0, width, height);
-
-        // Grid
-        ctx.strokeStyle = theme.grid;
-        ctx.lineWidth = 1;
-        for (let i = 1; i < 8; i++) {
-          const y = (height / 8) * i;
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(width, y);
-          ctx.stroke();
-        }
-
-        const bufferLength = analyserNode.frequencyBinCount;
-        if (!freqDataRef.current || freqDataRef.current.length !== bufferLength) {
-          freqDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
-        }
-        const freqData = freqDataRef.current;
-        analyserNode.getByteFrequencyData(freqData);
-
-        const numBars = 64;
-        const barWidth = width / numBars - 2;
-        const step = Math.floor(bufferLength / numBars);
-
-        const spectrumGrad = ctx.createLinearGradient(0, height, 0, 0);
-        spectrumGrad.addColorStop(0, theme.waveBot);
-        spectrumGrad.addColorStop(0.8, theme.waveTop);
-        spectrumGrad.addColorStop(1, "#fff");
-        ctx.fillStyle = spectrumGrad;
-
-        for (let i = 0; i < numBars; i++) {
-          const val = freqData[i * step] ?? 0;
-          const barHeight = (val / 255) * (height * 0.85);
-          const x = i * (barWidth + 2);
-          const y = height - barHeight;
-          ctx.fillRect(x, y, barWidth, barHeight);
-        }
-      } else if (visualizerMode === "oscilloscope" && analyserNode && isPlaying) {
-        // Scope mode: Real-time Phosphor trace
-        ctx.fillStyle = theme.bg;
-        ctx.fillRect(0, 0, width, height);
-
-        // Grid
-        ctx.strokeStyle = theme.grid;
-        ctx.lineWidth = 1;
-        for (let i = 1; i < 8; i++) {
-          const y = (height / 8) * i;
-          ctx.beginPath();
-          ctx.moveTo(0, y);
-          ctx.lineTo(width, y);
-          ctx.stroke();
-        }
-
-        const bufferLength = analyserNode.frequencyBinCount;
-        if (!timeDataRef.current || timeDataRef.current.length !== bufferLength) {
-          timeDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
-        }
-        const timeData = timeDataRef.current;
-        analyserNode.getByteTimeDomainData(timeData);
-
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = theme.waveTop;
-        ctx.beginPath();
-
-        const sliceWidth = width / bufferLength;
-        let x = 0;
-
-        for (let i = 0; i < bufferLength; i++) {
-          const v = (timeData[i] ?? 128) / 128.0;
-          const y = (v * height) / 2;
-
-          if (i === 0) {
-            ctx.moveTo(x, y);
-          } else {
-            ctx.lineTo(x, y);
-          }
-          x += sliceWidth;
-        }
-
-        ctx.stroke();
-      } else {
-        // Fast Cached Background Waveform Blit (<0.1ms render time!)
-        if (offscreenCanvasRef.current) {
-          ctx.drawImage(offscreenCanvasRef.current, 0, 0);
-        } else {
-          updateOffscreenBackground();
-          if (offscreenCanvasRef.current) {
-            ctx.drawImage(offscreenCanvasRef.current, 0, 0);
-          }
-        }
-      }
-
-      // Draw Playhead Cursor
-      if (duration > 0) {
-        const playheadX = timeToCanvasX(currentTime);
-        if (playheadX >= 0 && playheadX <= width) {
-          ctx.strokeStyle = theme.playhead;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(playheadX, 0);
-          ctx.lineTo(playheadX, height);
-          ctx.stroke();
-
-          // Playhead top badge triangle
-          ctx.fillStyle = theme.playhead;
-          ctx.beginPath();
-          ctx.moveTo(playheadX - 6, 0);
-          ctx.lineTo(playheadX + 6, 0);
-          ctx.lineTo(playheadX, 9);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
-
-      // Hover Guide Line
-      if (hoverX !== null && hoverX >= 0 && hoverX <= width) {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([2, 2]);
-        ctx.beginPath();
-        ctx.moveTo(hoverX, 0);
-        ctx.lineTo(hoverX, height);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-    };
-
-    const loop = (now: number) => {
+    const render = (now: number) => {
       if (!isDocVisible) {
-        animId = requestAnimationFrame(loop);
+        animId = requestAnimationFrame(render);
         return;
       }
 
       if (now - lastFrameTime >= FRAME_BUDGET_MS) {
         lastFrameTime = now;
-        render(now);
+        const width = canvas.width;
+        const height = canvas.height;
+        if (width <= 0 || height <= 0) return;
+
+        if (visualizerMode === "spectrum") {
+          ctx.fillStyle = theme.bg;
+          ctx.fillRect(0, 0, width, height);
+
+          // Grid
+          ctx.strokeStyle = theme.grid;
+          ctx.lineWidth = 1;
+          for (let i = 1; i < 8; i++) {
+            const y = (height / 8) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+          }
+
+          const bufferLength = analyserNode.frequencyBinCount;
+          if (!freqDataRef.current || freqDataRef.current.length !== bufferLength) {
+            freqDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
+          }
+          const freqData = freqDataRef.current;
+          analyserNode.getByteFrequencyData(freqData);
+
+          const numBars = 64;
+          const barWidth = width / numBars - 2;
+          const step = Math.floor(bufferLength / numBars);
+
+          const spectrumGrad = ctx.createLinearGradient(0, height, 0, 0);
+          spectrumGrad.addColorStop(0, theme.waveBot);
+          spectrumGrad.addColorStop(0.8, theme.waveTop);
+          spectrumGrad.addColorStop(1, "#fff");
+          ctx.fillStyle = spectrumGrad;
+
+          for (let i = 0; i < numBars; i++) {
+            const val = freqData[i * step] ?? 0;
+            const barHeight = (val / 255) * (height * 0.85);
+            const x = i * (barWidth + 2);
+            const y = height - barHeight;
+            ctx.fillRect(x, y, barWidth, barHeight);
+          }
+        } else if (visualizerMode === "oscilloscope") {
+          ctx.fillStyle = theme.bg;
+          ctx.fillRect(0, 0, width, height);
+
+          // Grid
+          ctx.strokeStyle = theme.grid;
+          ctx.lineWidth = 1;
+          for (let i = 1; i < 8; i++) {
+            const y = (height / 8) * i;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(width, y);
+            ctx.stroke();
+          }
+
+          const bufferLength = analyserNode.frequencyBinCount;
+          if (!timeDataRef.current || timeDataRef.current.length !== bufferLength) {
+            timeDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
+          }
+          const timeData = timeDataRef.current;
+          analyserNode.getByteTimeDomainData(timeData);
+
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = theme.waveTop;
+          ctx.beginPath();
+
+          const sliceWidth = width / bufferLength;
+          let x = 0;
+
+          for (let i = 0; i < bufferLength; i++) {
+            const v = (timeData[i] ?? 128) / 128.0;
+            const y = (v * height) / 2;
+
+            if (i === 0) {
+              ctx.moveTo(x, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+            x += sliceWidth;
+          }
+
+          ctx.stroke();
+        }
       }
 
-      if (isPlaying) {
-        animId = requestAnimationFrame(loop);
-      }
+      animId = requestAnimationFrame(render);
     };
-
-    // Render static frame once
-    render();
-
-    // If active playback, start frame-budgeted rAF loop
-    if (isPlaying) {
-      animId = requestAnimationFrame(loop);
-    }
 
     const handleVisibilityChange = () => {
       isDocVisible = !document.hidden;
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    animId = requestAnimationFrame(render);
+
     return () => {
-      if (animId !== null) {
-        cancelAnimationFrame(animId);
-      }
+      if (animId !== null) cancelAnimationFrame(animId);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      drawStaticWaveform();
     };
-  }, [
-    currentTime,
-    duration,
-    isPlaying,
-    visualizerMode,
-    phosphorTheme,
-    zoom,
-    panOffset,
-    hoverX,
-    analyserNode,
-    updateOffscreenBackground,
-  ]);
+  }, [isPlaying, visualizerMode, phosphorTheme, analyserNode, drawStaticWaveform]);
 
   // Sync canvas dimensions with container on resize with clamped Retina DPR (max 1.5)
   useEffect(() => {
@@ -602,23 +573,19 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
-      // Clamp DPR to max 1.5 to eliminate 4x-9x Retina pixel fill-rate thermal load
       const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.floor(rect.width * dpr);
       canvas.height = Math.floor(rect.height * dpr);
-
-      if (offscreenCanvasRef.current) {
-        offscreenCanvasRef.current.width = canvas.width;
-        offscreenCanvasRef.current.height = canvas.height;
-      }
-      updateOffscreenBackground();
+      drawStaticWaveform();
     };
 
     resize();
     const ro = new ResizeObserver(resize);
     ro.observe(container);
     return () => ro.disconnect();
-  }, [updateOffscreenBackground]);
+  }, [drawStaticWaveform]);
+
+  const currentTheme = THEME_COLORS[phosphorTheme];
 
   return (
     <div className={cn("relative flex flex-col gap-1.5", className)}>
@@ -739,18 +706,41 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
       >
         <canvas ref={canvasRef} className="h-full w-full block" />
 
-        {/* Hover Time Tooltip */}
-        {hoverTime !== null && hoverX !== null && (
+        {/* Ultra-efficient GPU-composited CSS Playhead (0 canvas redraws during playback!) */}
+        <div
+          ref={playheadElRef}
+          className="pointer-events-none absolute top-0 bottom-0 left-0 w-[2px] will-change-transform z-10"
+          style={{
+            backgroundColor: currentTheme.playhead,
+            transform: "translateX(0px)",
+            opacity: duration > 0 ? 1 : 0,
+          }}
+        >
+          {/* Top Triangle Badge */}
           <div
-            className="pointer-events-none absolute top-2 -translate-x-1/2 rounded border border-border bg-card/90 px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground shadow-[2px_2px_0px_var(--color-border)] backdrop-blur-xs"
-            style={{ left: `${Math.max(30, Math.min((containerRef.current?.clientWidth || 300) - 30, hoverX))}px` }}
-          >
-            {formatTimePrecise(hoverTime)}
-          </div>
+            className="absolute -top-0 -left-[4px] size-0 border-x-[5px] border-x-transparent border-t-[8px]"
+            style={{ borderTopColor: currentTheme.playhead }}
+          />
+        </div>
+
+        {/* Hover Time Tooltip & Guide Line */}
+        {hoverTime !== null && hoverX !== null && (
+          <>
+            <div
+              className="pointer-events-none absolute top-0 bottom-0 left-0 w-[1px] border-r border-dashed border-white/40 z-10"
+              style={{ transform: `translateX(${hoverX}px)` }}
+            />
+            <div
+              className="pointer-events-none absolute top-2 -translate-x-1/2 rounded border border-border bg-card/90 px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground shadow-[2px_2px_0px_var(--color-border)] backdrop-blur-xs z-20"
+              style={{ left: `${Math.max(30, Math.min((containerRef.current?.clientWidth || 300) - 30, hoverX))}px` }}
+            >
+              {formatTimePrecise(hoverTime)}
+            </div>
+          </>
         )}
 
         {/* Overlay Badges for Mode / Audio Info */}
-        <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 font-mono text-[8px] text-zinc-400">
+        <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 font-mono text-[8px] text-zinc-400 z-10">
           <span className="rounded-xs bg-black/70 px-1 py-0.2 border border-zinc-800 uppercase tracking-wider">
             {audio?.sampleRate ? `${(audio.sampleRate / 1000).toFixed(1)} kHz` : "48.0 kHz"}
           </span>
@@ -772,8 +762,11 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         </div>
 
         {/* Timecode HUD bottom-right */}
-        <div className="pointer-events-none absolute bottom-1.5 right-2 rounded-xs bg-black/80 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-400 border border-zinc-800">
-          {formatTimePrecise(currentTime)} / {formatTimePrecise(duration)}
+        <div
+          ref={timecodeHudRef}
+          className="pointer-events-none absolute bottom-1.5 right-2 rounded-xs bg-black/80 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-400 border border-zinc-800 z-10"
+        >
+          {formatTimePrecise(0)} / {formatTimePrecise(duration)}
         </div>
       </div>
 
