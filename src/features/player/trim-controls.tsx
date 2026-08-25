@@ -761,7 +761,7 @@ export function TrimControls({
               <Label className="text-[10px]">Container Format</Label>
               <Select
                 value={exportConfig.format}
-                onValueChange={(v: "mp4" | "webm") => setExportConfig({ format: v })}
+                onValueChange={(v: "mp4") => setExportConfig({ format: v })}
                 disabled={disabled || isExporting}
               >
                 <SelectTrigger className="h-7 text-xs font-mono">
@@ -770,9 +770,6 @@ export function TrimControls({
                 <SelectContent>
                   <SelectItem value="mp4" className="text-xs font-mono">
                     MP4 (AVC/H.264 + AAC)
-                  </SelectItem>
-                  <SelectItem value="webm" className="text-xs font-mono">
-                    WebM (VP9 + Opus)
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -1025,7 +1022,7 @@ export function TrimControls({
                         ? `${Math.round(exportConfig.bitrateMbps * 1000)} kbps`
                         : `${exportConfig.bitrateMbps.toFixed(1)} Mbps`}
                   </strong>{" "}
-                  · {exportConfig.format === "mp4" ? "MP4 (AVC)" : "WebM (VP9)"} · Sound Track:{" "}
+                  · MP4 (AVC) · Sound Track:{" "}
                   <strong
                     className={cn(
                       "font-bold",
@@ -1033,7 +1030,7 @@ export function TrimControls({
                     )}
                   >
                     {exportConfig.keepAudio
-                      ? `🔊 ON (192 kbps ${exportConfig.format === "mp4" ? "AAC" : "Opus"})`
+                      ? "🔊 ON (192 kbps AAC)"
                       : "🔇 OFF (Muted)"}
                   </strong>
                 </span>

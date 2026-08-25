@@ -1,5 +1,4 @@
 import { ArrayBufferTarget, Muxer as Mp4Muxer } from "mp4-muxer";
-import { ArrayBufferTarget as WebmArrayBufferTarget, Muxer as WebmMuxer } from "webm-muxer";
 import {
   calculateExportResolution,
   type ExportConfig,
@@ -126,12 +125,10 @@ export async function exportVideoWebCodecs({
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  const isMp4 = config.format === "mp4";
-
   // 3. Audio Extraction & Preparation (if requested)
   let slicedAudioBuffer: AudioBuffer | null = null;
   let hasAudioTrack = false;
-  const audioCodecString = isMp4 ? "mp4a.40.2" : "opus";
+  const audioCodecString = "mp4a.40.2";
   let audioEncoderConfig: AudioEncoderConfig | null = null;
 
   if (config.keepAudio) {
@@ -158,12 +155,8 @@ export async function exportVideoWebCodecs({
       void audioCtx.close();
 
       if (decodedBuffer && decodedBuffer.length > 0 && decodedBuffer.numberOfChannels > 0) {
-        // AAC supports 44100Hz or 48000Hz; Opus in WebCodecs strictly requires 48000Hz
-        const targetSampleRate = isMp4
-          ? decodedBuffer.sampleRate === 44100
-            ? 44100
-            : 48000
-          : 48000;
+        // AAC supports 44100Hz or 48000Hz
+        const targetSampleRate = decodedBuffer.sampleRate === 44100 ? 44100 : 48000;
         const targetChannels = Math.min(2, Math.max(1, decodedBuffer.numberOfChannels)) as 1 | 2;
         const totalOutputSamples = Math.max(1, Math.round(totalOutputDuration * targetSampleRate));
 
@@ -214,48 +207,25 @@ export async function exportVideoWebCodecs({
     }
   }
 
-  // 4. Initialize Muxer (MP4 or WebM)
-  let mp4Muxer: Mp4Muxer<ArrayBufferTarget> | null = null;
-  let webmMuxer: WebmMuxer<WebmArrayBufferTarget> | null = null;
-
-  if (isMp4) {
-    mp4Muxer = new Mp4Muxer({
-      target: new ArrayBufferTarget(),
-      video: {
-        codec: "avc",
-        width,
-        height,
-        frameRate: targetFps,
-      },
-      audio: hasAudioTrack && slicedAudioBuffer
-        ? {
-            codec: "aac",
-            numberOfChannels: slicedAudioBuffer.numberOfChannels,
-            sampleRate: slicedAudioBuffer.sampleRate,
-          }
-        : undefined,
-      fastStart: "in-memory",
-      firstTimestampBehavior: "offset",
-    });
-  } else {
-    webmMuxer = new WebmMuxer({
-      target: new WebmArrayBufferTarget(),
-      video: {
-        codec: "V_VP9",
-        width,
-        height,
-        frameRate: targetFps,
-      },
-      audio: hasAudioTrack && slicedAudioBuffer
-        ? {
-            codec: "A_OPUS",
-            numberOfChannels: slicedAudioBuffer.numberOfChannels,
-            sampleRate: slicedAudioBuffer.sampleRate,
-          }
-        : undefined,
-      firstTimestampBehavior: "offset",
-    });
-  }
+  // 4. Initialize MP4 Muxer
+  const mp4Muxer = new Mp4Muxer({
+    target: new ArrayBufferTarget(),
+    video: {
+      codec: "avc",
+      width,
+      height,
+      frameRate: targetFps,
+    },
+    audio: hasAudioTrack && slicedAudioBuffer
+      ? {
+          codec: "aac",
+          numberOfChannels: slicedAudioBuffer.numberOfChannels,
+          sampleRate: slicedAudioBuffer.sampleRate,
+        }
+      : undefined,
+    fastStart: "in-memory",
+    firstTimestampBehavior: "offset",
+  });
 
   // 5. Hardware Video Encoder Setup
   let _encodedChunksCount = 0;
@@ -264,11 +234,7 @@ export async function exportVideoWebCodecs({
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => {
       _encodedChunksCount++;
-      if (mp4Muxer) {
-        mp4Muxer.addVideoChunk(chunk, meta);
-      } else if (webmMuxer) {
-        webmMuxer.addVideoChunk(chunk, meta);
-      }
+      mp4Muxer.addVideoChunk(chunk, meta);
     },
     error: (err) => {
       encoderError = err;
@@ -278,7 +244,7 @@ export async function exportVideoWebCodecs({
   const bitrate = Math.round(config.bitrateMbps * 1_000_000);
 
   // AVC / H.264 profile: High Profile 4.0 'avc1.640028' (1080p60) or Main 'avc1.4d002a'
-  const videoCodecString = isMp4 ? "avc1.640028" : "vp09.00.10.08";
+  const videoCodecString = "avc1.640028";
 
   // Configure with hardware acceleration
   try {
@@ -289,30 +255,19 @@ export async function exportVideoWebCodecs({
       bitrate,
       framerate: targetFps,
       hardwareAcceleration: "prefer-hardware",
-      avc: isMp4 ? { format: "avc" } : undefined,
+      avc: { format: "avc" },
     });
   } catch {
     // Fallback to basic AVC Main profile if High profile is unsupported
-    if (isMp4) {
-      videoEncoder.configure({
-        codec: "avc1.4d002a",
-        width,
-        height,
-        bitrate,
-        framerate: targetFps,
-        hardwareAcceleration: "prefer-hardware",
-        avc: { format: "avc" },
-      });
-    } else {
-      videoEncoder.configure({
-        codec: "vp8",
-        width,
-        height,
-        bitrate,
-        framerate: targetFps,
-        hardwareAcceleration: "prefer-hardware",
-      });
-    }
+    videoEncoder.configure({
+      codec: "avc1.4d002a",
+      width,
+      height,
+      bitrate,
+      framerate: targetFps,
+      hardwareAcceleration: "prefer-hardware",
+      avc: { format: "avc" },
+    });
   }
 
   // 6. Audio Encoder Execution (with strict frame sizing & planar padding)
@@ -324,11 +279,7 @@ export async function exportVideoWebCodecs({
     const audioEngine = new AudioEncoder({
       output: (chunk, meta) => {
         audioChunksCount++;
-        if (mp4Muxer) {
-          mp4Muxer.addAudioChunk(chunk, meta);
-        } else if (webmMuxer) {
-          webmMuxer.addAudioChunk(chunk, meta);
-        }
+        mp4Muxer.addAudioChunk(chunk, meta);
       },
       error: (e) => {
         console.error("AudioEncoder runtime error:", e);
@@ -339,8 +290,8 @@ export async function exportVideoWebCodecs({
     try {
       audioEngine.configure(audioEncoderConfig);
 
-      // AAC requires 1024 samples/frame; Opus strictly requires 960 samples (20ms @ 48kHz)
-      const frameSize = isMp4 ? 1024 : 960;
+      // AAC requires 1024 samples/frame
+      const frameSize = 1024;
       const sampleRate = slicedAudioBuffer.sampleRate;
       const numChannels = slicedAudioBuffer.numberOfChannels;
       const totalSamples = slicedAudioBuffer.length;
@@ -506,29 +457,19 @@ export async function exportVideoWebCodecs({
   await videoEncoder.flush();
   videoEncoder.close();
 
-  let finalBlob: Blob;
-  if (mp4Muxer) {
-    mp4Muxer.finalize();
-    const buffer = mp4Muxer.target.buffer;
-    finalBlob = new Blob([buffer], { type: "video/mp4" });
-  } else if (webmMuxer) {
-    webmMuxer.finalize();
-    const buffer = webmMuxer.target.buffer;
-    finalBlob = new Blob([buffer], { type: "video/webm" });
-  } else {
-    throw new Error("Failed to finalize video muxer.");
-  }
+  mp4Muxer.finalize();
+  const buffer = mp4Muxer.target.buffer;
+  const finalBlob = new Blob([buffer], { type: "video/mp4" });
 
   const processingTimeMs = performance.now() - startTime;
   const totalElapsedSec = processingTimeMs / 1000;
   const finalSpeedMultiplier =
     totalElapsedSec > 0 ? Number((totalOutputDuration / totalElapsedSec).toFixed(1)) : 1;
 
-  const ext = isMp4 ? "mp4" : "webm";
   const stem = fileName.replace(/\.[^/.]+$/, "");
   const modeTag = segments.length > 1 ? "cut" : "trimmed";
   const soundTag = hasAudioTrack && audioEncodedSuccess ? "audio" : "muted";
-  const exportedFileName = `${stem}_${modeTag}_${soundTag}_${Date.now().toString(36)}.${ext}`;
+  const exportedFileName = `${stem}_${modeTag}_${soundTag}_${Date.now().toString(36)}.mp4`;
 
   onProgress?.({
     phase: "completed",
@@ -543,7 +484,7 @@ export async function exportVideoWebCodecs({
   });
 
   const actualHasAudio = Boolean(hasAudioTrack && audioEncodedSuccess);
-  const audioCodecLabel = actualHasAudio ? (isMp4 ? "AAC" : "Opus") : undefined;
+  const audioCodecLabel = actualHasAudio ? "AAC" : undefined;
 
   return {
     blob: finalBlob,
@@ -553,7 +494,7 @@ export async function exportVideoWebCodecs({
     frameCount: frameIndex,
     speedMultiplier: finalSpeedMultiplier,
     processingTimeMs: Math.round(processingTimeMs),
-    format: isMp4 ? "mp4" : "webm",
+    format: "mp4",
     width,
     height,
     hasAudio: actualHasAudio,

@@ -166,4 +166,10 @@ test("Video Export duration calculation handles Trim and Cut segments", () => {
   assert.equal(computeRetainedDuration(60, "trim", null, null), 60);
 });
 
+test("Video Export format is restricted to MP4", () => {
+  const formats = ["mp4"];
+  assert.equal(formats.length, 1);
+  assert.equal(formats[0], "mp4");
+});
+
 

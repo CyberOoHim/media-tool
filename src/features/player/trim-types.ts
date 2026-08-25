@@ -45,7 +45,7 @@ export interface ExportConfig {
   customWidth?: number;
   customHeight?: number;
   lockAspectRatio?: boolean;
-  format: "mp4" | "webm";
+  format: "mp4";
   bitrateMbps: number;
   fps: number;
   keepAudio: boolean;
@@ -71,7 +71,7 @@ export interface ExportResult {
   frameCount: number;
   speedMultiplier: number;
   processingTimeMs: number;
-  format: "mp4" | "webm";
+  format: "mp4";
   width: number;
   height: number;
   hasAudio: boolean;
