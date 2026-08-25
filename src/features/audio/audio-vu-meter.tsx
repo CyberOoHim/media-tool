@@ -16,8 +16,8 @@ function dbToNormalized(db: number): number {
 }
 
 export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMeterProps) {
-  // Meter power mode: 'normal' (25fps, 4x stride), 'eco' (15fps, 8x stride), 'off' (100% suspended)
-  const [meterPowerMode, setMeterPowerMode] = useState<"normal" | "eco" | "off">("normal");
+  // Meter power mode: default to 'eco' (15fps, 8x stride for maximum power efficiency on iPad)
+  const [meterPowerMode, setMeterPowerMode] = useState<"normal" | "eco" | "off">("eco");
 
   const barLRef = useRef<HTMLDivElement>(null);
   const barRRef = useRef<HTMLDivElement>(null);
@@ -81,31 +81,30 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
         lastFrameTime = now;
         analyserNode.getFloatTimeDomainData(timeDomainData);
 
-        // Ultra-light Sub-Sampled RMS & Peak calculation (only 32-64 iterations!)
+        // Ultra-light Sub-Sampled Stereo RMS & Peak calculation (sampling both L and R symmetrically)
         let sumSquaresL = 0;
         let peakL = 0;
         let sumSquaresR = 0;
         let peakR = 0;
-        let samplesL = 0;
-        let samplesR = 0;
+        let sampleCount = 0;
 
-        for (let i = 0; i < bufferLength; i += stride) {
-          const val = timeDomainData[i] ?? 0;
-          const absVal = Math.abs(val);
+        for (let i = 0; i < bufferLength - 1; i += stride) {
+          const valL = timeDomainData[i] ?? 0;
+          const valR = timeDomainData[i + 1] ?? valL;
+          const absValL = Math.abs(valL);
+          const absValR = Math.abs(valR);
 
-          if ((i & 1) === 0) {
-            sumSquaresL += val * val;
-            if (absVal > peakL) peakL = absVal;
-            samplesL++;
-          } else {
-            sumSquaresR += val * val;
-            if (absVal > peakR) peakR = absVal;
-            samplesR++;
-          }
+          sumSquaresL += valL * valL;
+          if (absValL > peakL) peakL = absValL;
+
+          sumSquaresR += valR * valR;
+          if (absValR > peakR) peakR = absValR;
+
+          sampleCount++;
         }
 
-        const rmsL = Math.sqrt(sumSquaresL / (samplesL || 1));
-        const rmsR = Math.sqrt(sumSquaresR / (samplesR || 1));
+        const rmsL = Math.sqrt(sumSquaresL / (sampleCount || 1));
+        const rmsR = Math.sqrt(sumSquaresR / (sampleCount || 1));
 
         // Convert to dB (-60 dB floor)
         const currentDbL = rmsL > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsL * 1.6)) : -60;
