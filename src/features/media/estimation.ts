@@ -1,8 +1,8 @@
-import { formatFileSize } from "./format.ts";
-import type { CropPresetId, OutputFormat, SourceImage } from "./types.ts";
-import type { ExportConfig, TrimMode } from "../player/trim-types.ts";
-import { calculateExportResolution } from "../player/trim-types.ts";
-import { resolveCropTarget } from "./crop.ts";
+import { formatFileSize } from "./format";
+import type { CropPresetId, OutputFormat, SourceImage } from "./types";
+import type { ExportConfig, TrimMode } from "../player/trim-types";
+import { calculateExportResolution } from "../player/trim-types";
+import { resolveCropTarget } from "./crop";
 
 export interface VideoSourceMetadata {
   containerLabel: string;

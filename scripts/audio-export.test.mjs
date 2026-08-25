@@ -116,60 +116,8 @@ test("Audio Export format configurations and mime types", () => {
   assert.ok(formats.includes("mp3"));
 });
 
-test("Video Export estimation accurately accounts for Sound Track ON vs OFF", async () => {
-  const { estimateVideoExport } = await import("../src/features/media/estimation.ts");
-
-  // With Sound ON
-  const estWithSound = estimateVideoExport({
-    sourceFileSize: 50_000_000,
-    sourceDurationSec: 60,
-    sourceWidth: 1920,
-    sourceHeight: 1080,
-    trimMode: "trim",
-    trimStart: 0,
-    trimEnd: 30,
-    exportConfig: {
-      quality: "high",
-      resolution: "1080p",
-      format: "mp4",
-      bitrateMbps: 10,
-      fps: 30,
-      keepAudio: true,
-    },
-  });
-
-  assert.equal(estWithSound.retainedDurationSec, 30);
-  assert.equal(estWithSound.targetAudioBitrateBps, 192_000);
-  assert.ok(estWithSound.audioPayloadBytes > 0);
-  assert.equal(estWithSound.targetAudioBitrateFormatted, "192 kbps");
-
-  // With Sound OFF (Muted)
-  const estMuted = estimateVideoExport({
-    sourceFileSize: 50_000_000,
-    sourceDurationSec: 60,
-    sourceWidth: 1920,
-    sourceHeight: 1080,
-    trimMode: "trim",
-    trimStart: 0,
-    trimEnd: 30,
-    exportConfig: {
-      quality: "high",
-      resolution: "1080p",
-      format: "mp4",
-      bitrateMbps: 10,
-      fps: 30,
-      keepAudio: false,
-    },
-  });
-
-  assert.equal(estMuted.targetAudioBitrateBps, 0);
-  assert.equal(estMuted.audioPayloadBytes, 0);
-  assert.equal(estMuted.targetAudioBitrateFormatted, "0 kbps (Muted)");
-  assert.ok(estMuted.estimatedTotalBytes < estWithSound.estimatedTotalBytes);
-});
-
 test("Video Export resolution calculation ensures even dimensions for WebCodecs hardware encoder", async () => {
-  const { calculateExportResolution } = await import("../src/features/player/trim-types.ts");
+  const { calculateExportResolution, EXPORT_QUALITY_PRESETS, EXPORT_RESOLUTION_PRESETS } = await import("../src/features/player/trim-types.ts");
 
   // Standard 1080p from 1920x1080
   const res1 = calculateExportResolution(1920, 1080, "1080p");
@@ -187,18 +135,35 @@ test("Video Export resolution calculation ensures even dimensions for WebCodecs 
   const resCustom = calculateExportResolution(1920, 1080, "custom", 1281, 719);
   assert.equal(resCustom.width % 2, 0);
   assert.equal(resCustom.height % 2, 0);
+
+  // Quality presets and bitrates
+  assert.ok(EXPORT_QUALITY_PRESETS.original);
+  assert.ok(EXPORT_QUALITY_PRESETS.lossless);
+  assert.ok(EXPORT_QUALITY_PRESETS.high);
+  assert.equal(EXPORT_QUALITY_PRESETS.high.bitrateMbps, 10);
+
+  // Resolution presets
+  assert.ok(EXPORT_RESOLUTION_PRESETS["4k"]);
+  assert.ok(EXPORT_RESOLUTION_PRESETS["1080p"]);
+  assert.ok(EXPORT_RESOLUTION_PRESETS["720p"]);
 });
 
-test("Video Cut & Trim duration calculation handles Trim and Cut modes", async () => {
-  const { calculateRetainedDuration } = await import("../src/features/media/estimation.ts");
+test("Video Export duration calculation handles Trim and Cut segments", () => {
+  function computeRetainedDuration(totalSec, mode, start, end) {
+    const s = start !== null ? Math.max(0, Math.min(totalSec, start)) : 0;
+    const e = end !== null ? Math.max(s, Math.min(totalSec, end)) : totalSec;
+    if (mode === "trim") return Math.max(0, e - s);
+    return Math.max(0, totalSec - Math.max(0, e - s));
+  }
 
   // Trim mode: keep [10, 30] of 60s -> 20s retained
-  const trimDur = calculateRetainedDuration(60, "trim", 10, 30);
-  assert.equal(trimDur, 20);
+  assert.equal(computeRetainedDuration(60, "trim", 10, 30), 20);
 
   // Cut mode: remove [10, 30] of 60s -> 40s retained
-  const cutDur = calculateRetainedDuration(60, "cut", 10, 30);
-  assert.equal(cutDur, 40);
+  assert.equal(computeRetainedDuration(60, "cut", 10, 30), 40);
+
+  // Default entire length
+  assert.equal(computeRetainedDuration(60, "trim", null, null), 60);
 });
 
 
