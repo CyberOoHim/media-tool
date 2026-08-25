@@ -29,6 +29,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { copyBlobToClipboard, imageFileFromClipboard } from "@/features/media/clipboard";
 import { getCropAspectRatio } from "@/features/media/crop";
+import { estimateImageOptimization, extractImageSourceMetadata } from "@/features/media/estimation";
 import { extFromMime, fileStem, formatFileSize } from "@/features/media/format";
 import { SaveLink } from "@/features/media/save-link";
 import { useMediaStore } from "@/features/media/store";
@@ -154,6 +155,18 @@ export function ImageBench() {
       ? ((savings / source.fileSize) * 100).toFixed(1)
       : null;
 
+  // Real-time source image metadata extraction and target estimation models
+  const sourceMeta = source ? extractImageSourceMetadata(source) : null;
+  const imageEstimation = estimateImageOptimization({
+    source,
+    targetKb: settings.targetKb,
+    quality: settings.quality,
+    format: settings.format,
+    cropPreset: settings.cropPreset,
+    customWidth: settings.customWidth,
+    customHeight: settings.customHeight,
+  });
+
   const outputName = output
     ? `${fileStem(source?.fileName ?? "image")}_optimized.${extFromMime(output.format)}`
     : "image_optimized.jpg";
@@ -218,6 +231,35 @@ export function ImageBench() {
           <button type="button" className="underline hover:no-underline" onClick={() => setError(null)}>
             Dismiss
           </button>
+        </div>
+      ) : null}
+
+      {/* Source Image Metadata Inspector Ribbon */}
+      {source && sourceMeta ? (
+        <div className="mb-3.5 rounded-[var(--radius-sm)] border-2 border-border bg-card p-2.5 font-mono text-[11px] space-y-1.5 shadow-[2px_2px_0px_var(--color-border)]">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <span className="rounded-xs bg-primary px-1.5 py-0.2 text-[9px] font-bold text-primary-foreground uppercase">
+                Source Still
+              </span>
+              <span className="text-foreground">{sourceMeta.formatLabel}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-[10px]">
+              <span className="flex items-center gap-1">
+                <ImageIcon className="size-3 text-signal" />
+                <strong className="text-foreground">{sourceMeta.width} × {sourceMeta.height} px</strong>
+                <span>({sourceMeta.aspectRatioLabel})</span>
+              </span>
+              <span>•</span>
+              <span>
+                Density: <strong className="text-foreground">{sourceMeta.megapixelsFormatted}</strong> ({sourceMeta.bitsPerPixelFormatted})
+              </span>
+              <span>•</span>
+              <span>
+                Size: <strong className="text-foreground">{sourceMeta.fileSizeFormatted}</strong>
+              </span>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -414,6 +456,89 @@ export function ImageBench() {
               </div>
             </div>
 
+            {/* Real-Time Live Output Estimator & 3-Stage Budget Comparison Meter */}
+            <div className="space-y-2 rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 font-mono text-[11px]">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <Sparkles className="size-3.5 text-signal" />
+                  <span className="uppercase tracking-wide">Target Estimation & Budget Gauge</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground">Est. Output Size:</span>
+                  <span className="rounded-xs border border-signal bg-signal/15 px-2 py-0.5 text-xs font-bold text-foreground shadow-[1px_1px_0px_var(--color-signal)]">
+                    ~{imageEstimation.estimatedFormatted}
+                  </span>
+                  <span className="rounded-xs border border-success/30 bg-success/15 px-1.5 py-0.2 text-[10px] font-bold text-success">
+                    -{imageEstimation.savingsPct}% Saved
+                  </span>
+                </div>
+              </div>
+
+              {/* Proposed UI Layout Format: Specs & Real-Time Estimate Line */}
+              <div className="space-y-1.5 rounded-xs border border-border/70 bg-secondary/40 p-2 text-[10px]">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-muted-foreground">
+                  <span className="text-foreground">
+                    ⚙️ Target Budget: <strong>{settings.targetKb} KB</strong> | <strong>{Math.round(settings.quality * 100)}% Quality</strong> | <strong>{imageEstimation.targetFormat}</strong> | <strong>{CROP_PRESETS.find((p) => p.id === settings.cropPreset)?.label}</strong>
+                  </span>
+                  <span>
+                    Target Res: <strong className="text-foreground">{imageEstimation.targetWidth}×{imageEstimation.targetHeight} px</strong> ({imageEstimation.estimatedBppFormatted})
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-border/40 font-bold">
+                  <span className="text-foreground">
+                    📊 REAL-TIME ESTIMATE: <span className="text-signal">~{imageEstimation.estimatedFormatted}</span> (-{imageEstimation.savingsPct}% vs raw)
+                  </span>
+                  <span className="text-muted-foreground text-[9.5px]">
+                    Pixel Shift: <strong className="text-foreground">{imageEstimation.pixelCountChangePct === 0 ? "100% Retained" : imageEstimation.pixelCountChangePct > 0 ? `+${imageEstimation.pixelCountChangePct}% pixels` : `${imageEstimation.pixelCountChangePct}% pixels`}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Visual 3-Stage Budget Comparison Meter */}
+              <div className="space-y-1.5 rounded-xs border border-border/40 bg-secondary/20 p-2 text-[10px]">
+                <div className="flex items-center justify-between font-bold text-foreground">
+                  <span className="flex flex-wrap items-center gap-1 text-muted-foreground">
+                    <span>Source ({sourceMeta ? sourceMeta.fileSizeFormatted : "—"})</span>
+                    <span>➜</span>
+                    <span>Budget ({imageEstimation.budgetFormatted})</span>
+                    <span>➜</span>
+                    <span className="text-foreground">
+                      {output ? `Actual (${formatFileSize(output.blob.size)})` : `Estimated (~${imageEstimation.estimatedFormatted})`}
+                    </span>
+                  </span>
+                  <span className={output && output.blob.size <= settings.targetKb * 1024 ? "text-success" : "text-signal"}>
+                    {output ? (output.blob.size <= settings.targetKb * 1024 ? "✔ On Budget" : "⚡ Quality Priority") : "Live Estimating"}
+                  </span>
+                </div>
+
+                {/* Gauge Bar */}
+                <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary border border-border">
+                  {/* Target Budget Marker / Zone */}
+                  <div
+                    className="absolute top-0 bottom-0 bg-signal/25 border-r-2 border-signal z-10"
+                    style={{
+                      width: `${Math.min(100, Math.max(10, source ? (imageEstimation.budgetBytes / source.fileSize) * 100 : 50))}%`,
+                    }}
+                    title={`Budget Cap: ${imageEstimation.budgetFormatted}`}
+                  />
+                  {/* Current / Estimated Output Bar */}
+                  <div
+                    className="h-full bg-primary transition-all z-20"
+                    style={{
+                      width: `${Math.min(100, Math.max(5, source ? ((output ? output.blob.size : imageEstimation.estimatedBytes) / source.fileSize) * 100 : 25))}%`,
+                    }}
+                    title={`Output Size: ${output ? formatFileSize(output.blob.size) : imageEstimation.estimatedFormatted}`}
+                  />
+                </div>
+                <div className="flex justify-between text-[9px] text-muted-foreground">
+                  <span>0 B</span>
+                  <span>Budget: {imageEstimation.budgetFormatted}</span>
+                  <span>Raw: {sourceMeta ? sourceMeta.fileSizeFormatted : "Source"}</span>
+                </div>
+              </div>
+            </div>
+
             {/* Processing Indicator Overlay */}
             {processing ? (
               <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[var(--radius-md)] bg-card/80 backdrop-blur-xs font-mono text-xs font-bold tracking-widest text-primary">
@@ -449,7 +574,7 @@ export function ImageBench() {
               title="Raw Source Frame"
               src={source?.objectUrl}
               empty="Drop image or press S on player"
-              dimensions={source ? `${source.width} × ${source.height} px` : "—"}
+              dimensions={source && sourceMeta ? `${source.width} × ${source.height} px (${sourceMeta.megapixelsFormatted} · ${sourceMeta.bitsPerPixelFormatted})` : "—"}
               size={source ? formatFileSize(source.fileSize) : "—"}
               tag="SOURCE"
               transform={benchTransform}
@@ -485,7 +610,7 @@ export function ImageBench() {
               title="Optimized Output"
               src={output?.objectUrl}
               empty={source ? "Optimizing..." : "Waiting for source frame..."}
-              dimensions={output ? `${output.width} × ${output.height} px` : "—"}
+              dimensions={output ? `${output.width} × ${output.height} px (${imageEstimation.targetMegapixels} MP · ${imageEstimation.estimatedBppFormatted})` : "—"}
               size={output ? formatFileSize(output.blob.size) : "—"}
               tag={output ? extFromMime(output.format).toUpperCase() : "TARGET"}
               sizeAccent

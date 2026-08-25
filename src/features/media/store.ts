@@ -38,13 +38,13 @@ export function sortCaptures(
 }
 
 export const DEFAULT_EXPORT_CONFIG: ExportConfig = {
-  quality: "lossless",
+  quality: "original",
   resolution: "original",
   customWidth: 1920,
   customHeight: 1080,
   lockAspectRatio: true,
   format: "mp4",
-  bitrateMbps: 18,
+  bitrateMbps: 14,
   fps: 30,
   keepAudio: true,
 };

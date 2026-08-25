@@ -1,6 +1,13 @@
 export type TrimMode = "trim" | "cut";
 
-export type ExportQuality = "lossless" | "high" | "medium" | "compact" | "ultra-compact" | "custom";
+export type ExportQuality =
+  | "original"
+  | "lossless"
+  | "high"
+  | "medium"
+  | "compact"
+  | "ultra-compact"
+  | "custom";
 
 export type ExportResolutionPreset =
   | "original"
@@ -73,8 +80,13 @@ export const EXPORT_QUALITY_PRESETS: Record<
   ExportQuality,
   { label: string; bitrateMbps: number; description: string }
 > = {
+  original: {
+    label: "Original (Same as Source)",
+    bitrateMbps: 0,
+    description: "Preserve exact native source video bitrate and quality (Default)",
+  },
   lossless: {
-    label: "Visually Lossless (Master)",
+    label: "Visually Lossless (18 Mbps)",
     bitrateMbps: 18,
     description: "Highest quality / near-identical master export with high bitrate CRF",
   },
@@ -94,7 +106,7 @@ export const EXPORT_QUALITY_PRESETS: Record<
     description: "Optimized for lightweight quick sharing and web embeddings",
   },
   "ultra-compact": {
-    label: "1 Mbps (Ultra-Compact)",
+    label: "Ultra-Compact (1 Mbps)",
     bitrateMbps: 1,
     description: "Minimal file size / low bitrate (1 Mbps) for instant mobile sharing",
   },

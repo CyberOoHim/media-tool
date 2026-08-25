@@ -4,6 +4,7 @@ import {
   Download,
   Film,
   Flame,
+  HardDrive,
   HelpCircle,
   Link2,
   Monitor,
@@ -34,6 +35,7 @@ import {
 import { Slider } from "@/components/ui/slider";
 import { Hint } from "@/components/ui/tooltip";
 import { downloadBlob } from "@/features/media/download";
+import { estimateVideoExport, extractVideoSourceMetadata } from "@/features/media/estimation";
 import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
 import { cn } from "@/lib/utils";
@@ -142,6 +144,27 @@ export function TrimControls({
       ? Math.max(0, Math.round(((durationSec - outputDurationSec) / durationSec) * 100))
       : 0;
 
+  // Real-time source metadata extraction and export estimation models
+  const sourceMeta = extractVideoSourceMetadata({
+    fileName: video?.fileName || "video.mp4",
+    fileSize: video?.fileSize || 0,
+    durationSec,
+    width: sourceWidth,
+    height: sourceHeight,
+    hasAudio: true,
+  });
+
+  const videoEstimation = estimateVideoExport({
+    sourceFileSize: video?.fileSize || 0,
+    sourceDurationSec: durationSec,
+    sourceWidth,
+    sourceHeight,
+    trimMode,
+    trimStart,
+    trimEnd,
+    exportConfig,
+  });
+
   // Mark IN / Start
   const handleMarkIn = useCallback(() => {
     setTrimStart(currentSec);
@@ -203,11 +226,21 @@ export function TrimControls({
     abortControllerRef.current = new AbortController();
 
     try {
+      const activeBitrateMbps =
+        exportConfig.quality === "original"
+          ? (sourceMeta.sourceBitrateBps > 0
+              ? Number((sourceMeta.sourceBitrateBps / 1_000_000).toFixed(2))
+              : exportConfig.bitrateMbps || 14)
+          : exportConfig.bitrateMbps;
+
       const result = await exportVideoWebCodecs({
         sourceUrl: video.objectUrl,
         fileName: video.fileName,
         segments: retainedSegments,
-        config: exportConfig,
+        config: {
+          ...exportConfig,
+          bitrateMbps: activeBitrateMbps,
+        },
         onProgress: (prog) => {
           setExportProgress(prog);
         },
@@ -279,6 +312,61 @@ export function TrimControls({
         }
         disabled={disabled}
       >
+        {/* Source Video Metadata Inspector Ribbon */}
+        <div className="rounded-[var(--radius-sm)] border-2 border-border bg-card p-2.5 font-mono text-[11px] space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <span className="rounded-xs bg-primary px-1.5 py-0.2 text-[9px] font-bold text-primary-foreground uppercase">
+                Source Specs
+              </span>
+              <span>{sourceMeta.containerLabel}</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-[10px]">
+              <span className="flex items-center gap-1">
+                <Monitor className="size-3 text-signal" />
+                <strong className="text-foreground">{sourceWidth} × {sourceHeight}</strong>
+                <span>({sourceMeta.aspectRatioLabel})</span>
+              </span>
+              <span>•</span>
+              <span>
+                Bitrate: <strong className="text-foreground">~{sourceMeta.sourceBitrateFormatted}</strong>
+              </span>
+              <span>•</span>
+              <span>
+                Size: <strong className="text-foreground">{formatFileSize(video?.fileSize || 0)}</strong>
+              </span>
+              <span>•</span>
+              <span>
+                Total: <strong className="text-foreground">{formatTimePrecise(durationSec, true)}</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* Retained Duration & Segment Summary Pill */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xs border border-border/80 bg-secondary/50 px-2 py-1 text-[10px]">
+            <span className="flex items-center gap-1 text-muted-foreground">
+              <Scissors className="size-2.5 text-signal" />
+              <span>Operation:</span>
+              <strong className="text-foreground uppercase">{trimMode} Mode</strong>
+              <span>[{formatTimePrecise(effectiveStart)} ➜ {formatTimePrecise(effectiveEnd)}]</span>
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span>Retained:</span>
+              <strong className="text-foreground font-bold">{formatTimePrecise(outputDurationSec)}</strong>
+              <span
+                className={cn(
+                  "rounded-xs px-1 py-0.2 font-bold",
+                  durationReductionPct > 0
+                    ? "border border-success/30 bg-success/15 text-success"
+                    : "bg-muted text-muted-foreground",
+                )}
+              >
+                {durationReductionPct > 0 ? `-${durationReductionPct}% Duration` : "100% Retained"}
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Range Definition & Transport Points */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {/* IN Point (Start) Box */}
@@ -632,10 +720,26 @@ export function TrimControls({
                 value={exportConfig.quality}
                 onValueChange={(v: ExportQuality) => {
                   const preset = EXPORT_QUALITY_PRESETS[v];
-                  setExportConfig({
-                    quality: v,
-                    bitrateMbps: preset.bitrateMbps,
-                  });
+                  if (v === "original") {
+                    const srcMbps =
+                      sourceMeta.sourceBitrateBps > 0
+                        ? Number((sourceMeta.sourceBitrateBps / 1_000_000).toFixed(2))
+                        : 14;
+                    setExportConfig({
+                      quality: v,
+                      bitrateMbps: srcMbps,
+                    });
+                  } else if (v === "custom") {
+                    setExportConfig({
+                      quality: v,
+                      bitrateMbps: Math.max(0.2, exportConfig.bitrateMbps || 8),
+                    });
+                  } else {
+                    setExportConfig({
+                      quality: v,
+                      bitrateMbps: preset.bitrateMbps,
+                    });
+                  }
                 }}
                 disabled={disabled || isExporting}
               >
@@ -818,56 +922,138 @@ export function TrimControls({
 
           {/* Custom Bitrate Slider if selected */}
           {exportConfig.quality === "custom" ? (
-            <div className="space-y-1 rounded-[var(--radius-sm)] border border-border bg-card p-2">
-              <div className="flex items-center justify-between text-[10px] font-mono">
-                <span>Custom Bitrate</span>
-                <strong className="text-signal">{exportConfig.bitrateMbps} Mbps</strong>
+            <div className="space-y-1.5 rounded-[var(--radius-sm)] border border-border bg-card p-2.5 font-mono">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-bold text-foreground">Custom Video Bitrate:</span>
+                <strong className="text-signal text-xs">
+                  {exportConfig.bitrateMbps < 1
+                    ? `${Math.round(exportConfig.bitrateMbps * 1000)} kbps`
+                    : `${exportConfig.bitrateMbps.toFixed(1)} Mbps`}
+                </strong>
               </div>
               <Slider
-                min={1}
+                min={0.2}
                 max={30}
-                step={0.5}
+                step={0.1}
                 value={[exportConfig.bitrateMbps]}
-                onValueChange={([val]) => setExportConfig({ bitrateMbps: val ?? 8 })}
+                onValueChange={([val]) =>
+                  setExportConfig({
+                    bitrateMbps: Math.max(0.2, Number((val ?? 8).toFixed(1))),
+                  })
+                }
               />
+              <div className="flex justify-between text-[9px] text-muted-foreground">
+                <span>200 kbps (Min)</span>
+                <span>5 Mbps</span>
+                <span>15 Mbps</span>
+                <span>30 Mbps (Max)</span>
+              </div>
             </div>
           ) : null}
 
-          {/* Technical Specifications Export Summary Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-secondary/60 px-2.5 py-1.5 font-mono text-[11px]">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Monitor className="size-3 text-signal" />
-                <span>Output Resolution:</span>
-                <strong className="text-foreground">
-                  {targetResolution.width} × {targetResolution.height} px
-                </strong>
-              </span>
-              <span className="rounded-xs bg-card px-1.5 py-0.2 text-[10px] font-semibold border border-border">
-                {exportConfig.resolution === "original"
-                  ? "Original Dimension (100%)"
-                  : pixelPercentChange === 0
-                    ? "100% Scale"
-                    : pixelPercentChange < 0
-                      ? `${pixelPercentChange}% size`
-                      : `+${pixelPercentChange}% scale`}
-              </span>
+          {/* Real-Time Live Target Size Estimator & Specifications Deck */}
+          <div className="space-y-2.5 rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 font-mono text-[11px]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
+              <div className="flex items-center gap-1.5 font-bold text-foreground">
+                <Cpu className="size-3.5 text-signal" />
+                <span className="uppercase tracking-wide">Live Target Size Estimator</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] text-muted-foreground">Est. Output Size:</span>
+                <span className="rounded-xs border border-signal bg-signal/15 px-2 py-0.5 text-xs font-bold text-foreground shadow-[1px_1px_0px_var(--color-signal)]">
+                  ~{videoEstimation.estimatedTotalFormatted}
+                </span>
+                <span
+                  className={cn(
+                    "rounded-xs px-1.5 py-0.2 text-[10px] font-bold border",
+                    videoEstimation.savingsPct >= 0
+                      ? "border-success/30 bg-success/15 text-success"
+                      : "border-destructive/30 bg-destructive/15 text-destructive",
+                  )}
+                >
+                  {videoEstimation.savingsPct >= 0
+                    ? `-${videoEstimation.savingsPct}% vs source`
+                    : `+${Math.abs(videoEstimation.savingsPct)}% vs source`}
+                </span>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-              <span>
-                Codec: <strong className="text-foreground">{exportConfig.format === "mp4" ? "H.264/AVC" : "VP9"}</strong>
-              </span>
-              <span>•</span>
-              <span>
-                Bitrate: <strong className="text-foreground">{exportConfig.bitrateMbps} Mbps</strong>
-              </span>
-              <span>•</span>
-              <span>
-                Audio:{" "}
-                <strong className={exportConfig.keepAudio ? "text-success" : "text-muted-foreground"}>
-                  {exportConfig.keepAudio ? "Synced AAC" : "Muted"}
+            {/* Proposed UI Layout Format: Specs & Real-Time Estimate Line */}
+            <div className="space-y-1.5 rounded-xs border border-border/70 bg-secondary/40 p-2 text-[10px]">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-muted-foreground">
+                <span className="flex items-center gap-1 text-foreground">
+                  <Monitor className="size-3 text-signal" />
+                  <span>⚙️ Export Specs:</span>
+                  <strong>{targetResolution.width}×{targetResolution.height} px</strong>
+                  <span>({exportConfig.resolution === "original" ? "100%" : pixelPercentChange > 0 ? `+${pixelPercentChange}%` : `${pixelPercentChange}%`})</span>
+                </span>
+                <span>
+                  Bitrate:{" "}
+                  <strong className="text-foreground">
+                    {exportConfig.quality === "original"
+                      ? `${videoEstimation.targetVideoBitrateFormatted} (Source Match)`
+                      : exportConfig.bitrateMbps < 1
+                        ? `${Math.round(exportConfig.bitrateMbps * 1000)} kbps`
+                        : `${exportConfig.bitrateMbps.toFixed(1)} Mbps`}
+                  </strong>{" "}
+                  · {exportConfig.format === "mp4" ? "MP4 (AVC)" : "WebM (VP9)"} · Audio:{" "}
+                  <strong className={exportConfig.keepAudio ? "text-success" : "text-muted-foreground"}>
+                    {exportConfig.keepAudio ? "On (160 kbps)" : "Muted"}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-border/40 font-bold">
+                <span className="text-foreground">
+                  📊 REAL-TIME ESTIMATE: <span className="text-signal">~{videoEstimation.estimatedTotalFormatted}</span> ({videoEstimation.savingsPct >= 0 ? `-${videoEstimation.savingsPct}% vs source` : `+${Math.abs(videoEstimation.savingsPct)}% vs source`})
+                </span>
+                <span className="text-muted-foreground text-[9.5px]">
+                  Est. Bitrate: <strong className="text-foreground">{videoEstimation.targetTotalBitrateFormatted} Total</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Target Bitrate & Payload Allocation Split */}
+            <div className="space-y-1 rounded-xs border border-border/40 bg-secondary/20 p-2 text-[10px]">
+              <div className="flex items-center justify-between text-muted-foreground">
+                <span>Bitrate Payload Allocation:</span>
+                <span className="text-foreground">
+                  Video: {formatFileSize(videoEstimation.videoPayloadBytes)} ({videoEstimation.videoPayloadRatioPct}%) · Audio: {formatFileSize(videoEstimation.audioPayloadBytes)} ({videoEstimation.audioPayloadRatioPct}%) · Overhead: ~{formatFileSize(videoEstimation.containerOverheadBytes)}
+                </span>
+              </div>
+              <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-secondary border border-border">
+                <div
+                  className="bg-signal transition-all"
+                  style={{ width: `${Math.max(5, videoEstimation.videoPayloadRatioPct)}%` }}
+                  title={`Video Payload: ${formatFileSize(videoEstimation.videoPayloadBytes)}`}
+                />
+                <div
+                  className="bg-primary transition-all"
+                  style={{ width: `${Math.max(2, videoEstimation.audioPayloadRatioPct)}%` }}
+                  title={`Audio Payload: ${formatFileSize(videoEstimation.audioPayloadBytes)}`}
+                />
+              </div>
+            </div>
+
+            {/* Storage Savings Indicator */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5 text-[10px]">
+              <span className="flex items-center gap-1 text-muted-foreground">
+                <HardDrive className="size-3 text-signal" />
+                <span>Storage Savings:</span>
+                <strong
+                  className={
+                    videoEstimation.savingsBytes >= 0
+                      ? "text-success font-bold"
+                      : "text-destructive font-bold"
+                  }
+                >
+                  {videoEstimation.savingsBytes >= 0
+                    ? `Save ~${formatFileSize(videoEstimation.savingsBytes)} (${videoEstimation.savingsPct}% reduction)`
+                    : `+${formatFileSize(Math.abs(videoEstimation.savingsBytes))} larger due to bitrate increase`}
                 </strong>
+              </span>
+              <span className="text-muted-foreground">
+                Retained: <strong className="text-foreground">{formatTimePrecise(outputDurationSec)}</strong> ({durationReductionPct > 0 ? `-${durationReductionPct}% duration` : "full length"})
               </span>
             </div>
           </div>
