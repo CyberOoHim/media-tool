@@ -222,23 +222,11 @@ export class OggOpusMuxer {
   }
 
   /**
-   * Finalizes the muxer and returns the concatenated binary data as a Blob
+   * Finalizes the muxer and returns the concatenated binary data as a Blob with zero heap duplication
    */
   public finalize(mimeType: "audio/ogg; codecs=opus" | "audio/opus" | "audio/ogg" = "audio/ogg; codecs=opus"): Blob {
     this.flushStagedPage(true);
-
-    let totalLength = 0;
-    for (const p of this.pages) {
-      totalLength += p.length;
-    }
-
-    const merged = new Uint8Array(totalLength);
-    let offset = 0;
-    for (const p of this.pages) {
-      merged.set(p, offset);
-      offset += p.length;
-    }
-
-    return new Blob([merged.buffer], { type: mimeType });
+    // Directly construct Blob from array of pages, avoiding duplicate buffer allocation
+    return new Blob(this.pages, { type: mimeType });
   }
 }

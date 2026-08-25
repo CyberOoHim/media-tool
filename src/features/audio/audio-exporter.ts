@@ -165,6 +165,13 @@ async function encodeOpusWebCodecs(
   for (let offset = 0; offset < totalSamples; offset += frameSize) {
     if (encoderError) throw encoderError;
 
+    // Thermal & Memory Backpressure Guard for iPads / Mobile:
+    // Throttles feed when encoder queue exceeds 4 items to prevent memory ballooning,
+    // GC thrashing, and high CPU P-core heat generation.
+    while (encoder.encodeQueueSize > 4) {
+      await new Promise((r) => setTimeout(r, 4));
+    }
+
     const currentBlock = Math.min(frameSize, totalSamples - offset);
     if (currentBlock < frameSize) {
       planarBuffer.fill(0);
@@ -192,6 +199,7 @@ async function encodeOpusWebCodecs(
     if (offset % (frameSize * 25) === 0) {
       const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
       onProgress?.(pct);
+      // Yield to browser main thread event loop to allow OS thermal pacing
       await new Promise((r) => setTimeout(r, 0));
     }
   }
@@ -278,6 +286,11 @@ async function encodeAacWebCodecs(
   for (let offset = 0; offset < totalSamples; offset += frameSize) {
     if (encoderError) throw encoderError;
 
+    // Thermal & Memory Backpressure Guard for iPads / Mobile
+    while (encoder.encodeQueueSize > 4) {
+      await new Promise((r) => setTimeout(r, 4));
+    }
+
     const currentBlock = Math.min(frameSize, totalSamples - offset);
     if (currentBlock < frameSize) {
       planarBuffer.fill(0);
@@ -305,6 +318,7 @@ async function encodeAacWebCodecs(
     if (offset % (frameSize * 25) === 0) {
       const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
       onProgress?.(pct);
+      // Yield to browser main thread event loop
       await new Promise((r) => setTimeout(r, 0));
     }
   }
