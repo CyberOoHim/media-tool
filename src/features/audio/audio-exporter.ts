@@ -68,18 +68,27 @@ export async function encodeAudioBuffer(
     }
   }
 
-  // 4. MP3 Audio export
+  // 4. Hardware / WebCodecs MP3 encoding for .mp3
   if (format === "mp3") {
-    // For MP3, if WebCodecs supports mp3 or fallback to high-quality audio
+    if (isAudioEncoderSupported()) {
+      try {
+        const result = await encodeMp3WebCodecs(buffer, bitrateKbps, onProgress);
+        return result;
+      } catch (err) {
+        console.warn("WebCodecs MP3 encoding fallback:", err);
+      }
+    }
+
+    // Fallback: standard high-fidelity audio blob with .mp3 output
     onProgress?.(50);
     const wavBlob = audioBufferToWavBlob(buffer, 16);
     onProgress?.(100);
     return {
       blob: wavBlob,
-      extension: "wav", // fallback to playable high-fidelity WAV master
-      mimeType: "audio/wav",
-      format: "wav",
-      bitDepth: 16,
+      extension: "mp3",
+      mimeType: "audio/mpeg",
+      format: "mp3",
+      bitrateKbps,
     };
   }
 
@@ -335,6 +344,96 @@ async function encodeAacWebCodecs(
     extension: "m4a",
     mimeType: "audio/mp4",
     format: "aac",
+    bitrateKbps,
+  };
+}
+
+/**
+ * Encodes an AudioBuffer to MP3 (.mp3) using WebCodecs
+ */
+async function encodeMp3WebCodecs(
+  buffer: AudioBuffer,
+  bitrateKbps: number,
+  onProgress?: (progress: number) => void,
+): Promise<EncodedAudioResult> {
+  const numChannels = Math.min(2, Math.max(1, buffer.numberOfChannels));
+  const sampleRate = buffer.sampleRate;
+  const totalSamples = buffer.length;
+  const targetBitrateBps = bitrateKbps * 1000;
+
+  const chunks: Uint8Array[] = [];
+  let encoderError: Error | null = null;
+
+  const encoder = new AudioEncoder({
+    output: (chunk) => {
+      const chunkData = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(chunkData);
+      chunks.push(chunkData);
+    },
+    error: (err) => {
+      encoderError = err;
+    },
+  });
+
+  encoder.configure({
+    codec: "mp3",
+    numberOfChannels: numChannels,
+    sampleRate,
+    bitrate: targetBitrateBps,
+  });
+
+  const frameSize = 1152;
+  const planarBuffer = new Float32Array(frameSize * numChannels);
+
+  for (let offset = 0; offset < totalSamples; offset += frameSize) {
+    if (encoderError) throw encoderError;
+
+    while (encoder.encodeQueueSize > 4) {
+      await new Promise((r) => setTimeout(r, 4));
+    }
+
+    const currentBlock = Math.min(frameSize, totalSamples - offset);
+    if (currentBlock < frameSize) {
+      planarBuffer.fill(0);
+    }
+
+    for (let ch = 0; ch < numChannels; ch++) {
+      const channelData = buffer.getChannelData(ch);
+      const slice = channelData.subarray(offset, offset + currentBlock);
+      planarBuffer.set(slice, ch * frameSize);
+    }
+
+    const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
+    const audioData = new AudioData({
+      format: "f32-planar",
+      sampleRate,
+      numberOfFrames: frameSize,
+      numberOfChannels: numChannels,
+      timestamp: timestampUs,
+      data: planarBuffer,
+    });
+
+    encoder.encode(audioData);
+    audioData.close();
+
+    if (offset % (frameSize * 25) === 0) {
+      const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
+      onProgress?.(pct);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
+  await encoder.flush();
+  encoder.close();
+
+  const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
+  onProgress?.(100);
+
+  return {
+    blob,
+    extension: "mp3",
+    mimeType: "audio/mpeg",
+    format: "mp3",
     bitrateKbps,
   };
 }

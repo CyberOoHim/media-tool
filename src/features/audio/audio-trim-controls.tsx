@@ -251,12 +251,12 @@ export function AudioTrimControls() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="mp3">MP3 Audio</SelectItem>
                 <SelectItem value="opus">OPUS (RFC 7845 Native)</SelectItem>
                 <SelectItem value="ogg">OGG (Opus Audio)</SelectItem>
                 <SelectItem value="webm">WebM Audio</SelectItem>
                 <SelectItem value="wav">WAV (PCM Lossless)</SelectItem>
                 <SelectItem value="aac">AAC / M4A (MPEG-4)</SelectItem>
-                <SelectItem value="mp3">MP3 Audio</SelectItem>
               </SelectContent>
             </Select>
           </div>

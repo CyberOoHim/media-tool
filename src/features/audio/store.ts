@@ -55,7 +55,7 @@ export const DEFAULT_DYNAMICS: DynamicsSettings = {
 };
 
 export const DEFAULT_AUDIO_EXPORT_CONFIG: AudioExportConfig = {
-  format: "wav",
+  format: "mp3",
   sampleRate: 48000,
   channels: 2,
   bitDepth: 16,

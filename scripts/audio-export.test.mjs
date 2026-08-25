@@ -113,5 +113,6 @@ test("Audio Export format configurations and mime types", () => {
   assert.ok(formats.includes("wav"));
   assert.ok(formats.includes("webm"));
   assert.ok(formats.includes("aac"));
+  assert.ok(formats.includes("mp3"));
 });
 
