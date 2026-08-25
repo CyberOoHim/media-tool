@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Video Tool";
+const APP_NAME = "Media Tool";
 
 function assetUrl(path: string) {
   const base = import.meta.env.BASE_URL || "/";

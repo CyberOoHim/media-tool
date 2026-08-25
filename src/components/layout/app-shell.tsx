@@ -47,7 +47,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className="leading-tight">
               <div className="flex items-center gap-1.5">
                 <span className="font-mono text-sm font-bold tracking-[0.14em] text-foreground">
-                  VIDEO TOOL
+                  MEDIA TOOL
                 </span>
                 <span className="rounded-xs bg-primary px-1 py-0.2 font-mono text-[9px] font-bold text-primary-foreground uppercase tracking-widest">
                   VCR-77

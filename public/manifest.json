@@ -1,6 +1,6 @@
 {
-  "name": "Video Tool",
-  "short_name": "Video Tool",
+  "name": "Media Tool",
+  "short_name": "Media Tool",
   "id": "./",
   "start_url": "./",
   "scope": "./",

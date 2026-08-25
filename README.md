@@ -1,4 +1,4 @@
-# Video Tool
+# Media Tool
 
 Local **video player**, **frame capture**, and **image bench** — crop, convert, and compress stills to a size budget. Everything runs in the browser. Nothing is uploaded.
 
