@@ -15,7 +15,7 @@ import { useAudioStore } from "./store";
 import type { PhosphorTheme } from "./types";
 
 interface AudioWaveformProps {
-  analyserNode: AnalyserNode | null;
+  analyserNode?: AnalyserNode | null;
   onSeek: (timeSec: number) => void;
   className?: string;
 }
@@ -436,7 +436,9 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
     if (visualizerMode !== "spectrum" && visualizerMode !== "oscilloscope") {
       return;
     }
-    if (!isPlaying || !analyserNode) {
+    const store = useAudioStore.getState();
+    const hasBuffer = !!store.audio?.audioBuffer;
+    if (!isPlaying || (!analyserNode && !hasBuffer)) {
       drawStaticWaveform();
       return;
     }
@@ -464,6 +466,9 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         const height = canvas.height;
         if (width <= 0 || height <= 0) return;
 
+        const currentStore = useAudioStore.getState();
+        const aBuffer = currentStore.audio?.audioBuffer;
+
         if (visualizerMode === "spectrum") {
           ctx.fillStyle = theme.bg;
           ctx.fillRect(0, 0, width, height);
@@ -479,29 +484,56 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
             ctx.stroke();
           }
 
-          const bufferLength = analyserNode.frequencyBinCount;
-          if (!freqDataRef.current || freqDataRef.current.length !== bufferLength) {
-            freqDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
-          }
-          const freqData = freqDataRef.current;
-          analyserNode.getByteFrequencyData(freqData);
-
           const numBars = 64;
           const barWidth = width / numBars - 2;
-          const step = Math.floor(bufferLength / numBars);
-
           const spectrumGrad = ctx.createLinearGradient(0, height, 0, 0);
           spectrumGrad.addColorStop(0, theme.waveBot);
           spectrumGrad.addColorStop(0.8, theme.waveTop);
           spectrumGrad.addColorStop(1, "#fff");
           ctx.fillStyle = spectrumGrad;
 
-          for (let i = 0; i < numBars; i++) {
-            const val = freqData[i * step] ?? 0;
-            const barHeight = (val / 255) * (height * 0.85);
-            const x = i * (barWidth + 2);
-            const y = height - barHeight;
-            ctx.fillRect(x, y, barWidth, barHeight);
+          if (analyserNode) {
+            const bufferLength = analyserNode.frequencyBinCount;
+            if (!freqDataRef.current || freqDataRef.current.length !== bufferLength) {
+              freqDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
+            }
+            const freqData = freqDataRef.current;
+            analyserNode.getByteFrequencyData(freqData);
+            const step = Math.floor(bufferLength / numBars);
+
+            for (let i = 0; i < numBars; i++) {
+              const val = freqData[i * step] ?? 0;
+              const barHeight = (val / 255) * (height * 0.85);
+              const x = i * (barWidth + 2);
+              const y = height - barHeight;
+              ctx.fillRect(x, y, barWidth, barHeight);
+            }
+          } else if (aBuffer) {
+            // Direct spectrum estimation from audioBuffer at playhead
+            const curTime = currentStore.currentTime;
+            const sampleRate = aBuffer.sampleRate;
+            const startIdx = Math.max(0, Math.min(aBuffer.length - 1, Math.floor(curTime * sampleRate)));
+            const chan0 = aBuffer.getChannelData(0);
+            const windowSize = 512;
+            const step = Math.floor(windowSize / numBars);
+
+            for (let i = 0; i < numBars; i++) {
+              let barSum = 0;
+              let count = 0;
+              const offset = startIdx + i * step;
+              for (let j = 0; j < step && offset + j < aBuffer.length; j++) {
+                const sample = chan0[offset + j] ?? 0;
+                barSum += Math.abs(sample);
+                count++;
+              }
+              const avg = count > 0 ? barSum / count : 0;
+              // Enhanced dynamic response for display
+              const scaled = Math.min(1.0, Math.pow(avg * 2.5, 0.7));
+              const barHeight = scaled * (height * 0.85);
+              const x = i * (barWidth + 2);
+              const y = height - barHeight;
+              ctx.fillRect(x, y, barWidth, barHeight);
+            }
           }
         } else if (visualizerMode === "oscilloscope") {
           ctx.fillStyle = theme.bg;
@@ -518,30 +550,53 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
             ctx.stroke();
           }
 
-          const bufferLength = analyserNode.frequencyBinCount;
-          if (!timeDataRef.current || timeDataRef.current.length !== bufferLength) {
-            timeDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
-          }
-          const timeData = timeDataRef.current;
-          analyserNode.getByteTimeDomainData(timeData);
-
           ctx.lineWidth = 2;
           ctx.strokeStyle = theme.waveTop;
           ctx.beginPath();
 
-          const sliceWidth = width / bufferLength;
-          let x = 0;
-
-          for (let i = 0; i < bufferLength; i++) {
-            const v = (timeData[i] ?? 128) / 128.0;
-            const y = (v * height) / 2;
-
-            if (i === 0) {
-              ctx.moveTo(x, y);
-            } else {
-              ctx.lineTo(x, y);
+          if (analyserNode) {
+            const bufferLength = analyserNode.frequencyBinCount;
+            if (!timeDataRef.current || timeDataRef.current.length !== bufferLength) {
+              timeDataRef.current = new Uint8Array(new ArrayBuffer(bufferLength));
             }
-            x += sliceWidth;
+            const timeData = timeDataRef.current;
+            analyserNode.getByteTimeDomainData(timeData);
+
+            const sliceWidth = width / bufferLength;
+            let x = 0;
+
+            for (let i = 0; i < bufferLength; i++) {
+              const v = (timeData[i] ?? 128) / 128.0;
+              const y = (v * height) / 2;
+
+              if (i === 0) {
+                ctx.moveTo(x, y);
+              } else {
+                ctx.lineTo(x, y);
+              }
+              x += sliceWidth;
+            }
+          } else if (aBuffer) {
+            // Direct oscilloscope trace from audioBuffer at playhead
+            const curTime = currentStore.currentTime;
+            const sampleRate = aBuffer.sampleRate;
+            const startIdx = Math.max(0, Math.min(aBuffer.length - 1, Math.floor(curTime * sampleRate)));
+            const chan0 = aBuffer.getChannelData(0);
+            const numSamples = 256;
+            const sliceWidth = width / numSamples;
+            let x = 0;
+
+            for (let i = 0; i < numSamples; i++) {
+              const sample = chan0[startIdx + i] ?? 0;
+              const y = ((1 - sample) * height) / 2;
+
+              if (i === 0) {
+                ctx.moveTo(x, y);
+              } else {
+                ctx.lineTo(x, y);
+              }
+              x += sliceWidth;
+            }
           }
 
           ctx.stroke();

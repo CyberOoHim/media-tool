@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Gauge, Moon, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAudioStore } from "./store";
 
 interface AudioVuMeterProps {
-  analyserNode: AnalyserNode | null;
   isPlaying: boolean;
+  analyserNode?: AnalyserNode | null;
   className?: string;
 }
 
@@ -15,7 +16,7 @@ function dbToNormalized(db: number): number {
   return (db + 60) / 63;
 }
 
-export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMeterProps) {
+export function AudioVuMeter({ isPlaying, analyserNode, className }: AudioVuMeterProps) {
   // Meter power mode: default to 'eco' (15fps, 8x stride for maximum power efficiency on iPad)
   const [meterPowerMode, setMeterPowerMode] = useState<"normal" | "eco" | "off">("eco");
 
@@ -51,16 +52,10 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
       }
     };
 
-    if (!analyserNode || !isPlaying || meterPowerMode === "off") {
+    if (!isPlaying || meterPowerMode === "off") {
       resetDisplay();
       return;
     }
-
-    const bufferLength = analyserNode.frequencyBinCount;
-    if (!bufferRef.current || bufferRef.current.length !== bufferLength) {
-      bufferRef.current = new Float32Array(new ArrayBuffer(bufferLength * 4));
-    }
-    const timeDomainData = bufferRef.current;
 
     let animId: number | null = null;
     let lastFrameTime = 0;
@@ -79,36 +74,86 @@ export function AudioVuMeter({ analyserNode, isPlaying, className }: AudioVuMete
 
       if (now - lastFrameTime >= frameBudgetMs) {
         lastFrameTime = now;
-        analyserNode.getFloatTimeDomainData(timeDomainData);
 
-        // Ultra-light Sub-Sampled Stereo RMS & Peak calculation (sampling both L and R symmetrically)
-        let sumSquaresL = 0;
+        let currentDbL = -60;
+        let currentDbR = -60;
         let peakL = 0;
-        let sumSquaresR = 0;
         let peakR = 0;
-        let sampleCount = 0;
 
-        for (let i = 0; i < bufferLength - 1; i += stride) {
-          const valL = timeDomainData[i] ?? 0;
-          const valR = timeDomainData[i + 1] ?? valL;
-          const absValL = Math.abs(valL);
-          const absValR = Math.abs(valR);
+        const store = useAudioStore.getState();
+        const audioBuffer = store.audio?.audioBuffer;
 
-          sumSquaresL += valL * valL;
-          if (absValL > peakL) peakL = absValL;
+        if (audioBuffer && audioBuffer.length > 0) {
+          // Direct high-fidelity sampling from decoded PCM AudioBuffer at playhead
+          const curTime = store.currentTime;
+          const sampleRate = audioBuffer.sampleRate;
+          const startIdx = Math.max(0, Math.min(audioBuffer.length - 1, Math.floor(curTime * sampleRate)));
+          const chan0 = audioBuffer.getChannelData(0);
+          const chan1 = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : chan0;
+          const windowSize = 512;
+          const endIdx = Math.min(audioBuffer.length, startIdx + windowSize);
 
-          sumSquaresR += valR * valR;
-          if (absValR > peakR) peakR = absValR;
+          const vol = store.muted ? 0 : store.volume;
+          const pan = store.pan; // -1 to 1
+          const panL = pan <= 0 ? 1 : Math.max(0, 1 - pan);
+          const panR = pan >= 0 ? 1 : Math.max(0, 1 + pan);
 
-          sampleCount++;
+          let sumSqL = 0;
+          let sumSqR = 0;
+          let samplesProcessed = 0;
+
+          for (let i = startIdx; i < endIdx; i += stride) {
+            const valL = (chan0[i] ?? 0) * vol * panL;
+            const valR = (chan1[i] ?? 0) * vol * panR;
+            const absL = Math.abs(valL);
+            const absR = Math.abs(valR);
+
+            sumSqL += valL * valL;
+            sumSqR += valR * valR;
+            if (absL > peakL) peakL = absL;
+            if (absR > peakR) peakR = absR;
+            samplesProcessed++;
+          }
+
+          if (samplesProcessed > 0) {
+            const rmsL = Math.sqrt(sumSqL / samplesProcessed);
+            const rmsR = Math.sqrt(sumSqR / samplesProcessed);
+            currentDbL = rmsL > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsL * 1.6)) : -60;
+            currentDbR = rmsR > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsR * 1.6)) : -60;
+          }
+        } else if (analyserNode) {
+          const bufferLength = analyserNode.frequencyBinCount;
+          if (!bufferRef.current || bufferRef.current.length !== bufferLength) {
+            bufferRef.current = new Float32Array(new ArrayBuffer(bufferLength * 4));
+          }
+          const timeDomainData = bufferRef.current;
+          analyserNode.getFloatTimeDomainData(timeDomainData);
+
+          let sumSquaresL = 0;
+          let sumSquaresR = 0;
+          let sampleCount = 0;
+
+          for (let i = 0; i < bufferLength - 1; i += stride) {
+            const valL = timeDomainData[i] ?? 0;
+            const valR = timeDomainData[i + 1] ?? valL;
+            const absValL = Math.abs(valL);
+            const absValR = Math.abs(valR);
+
+            sumSquaresL += valL * valL;
+            if (absValL > peakL) peakL = absValL;
+
+            sumSquaresR += valR * valR;
+            if (absValR > peakR) peakR = absValR;
+
+            sampleCount++;
+          }
+
+          const rmsL = Math.sqrt(sumSquaresL / (sampleCount || 1));
+          const rmsR = Math.sqrt(sumSquaresR / (sampleCount || 1));
+
+          currentDbL = rmsL > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsL * 1.6)) : -60;
+          currentDbR = rmsR > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsR * 1.6)) : -60;
         }
-
-        const rmsL = Math.sqrt(sumSquaresL / (sampleCount || 1));
-        const rmsR = Math.sqrt(sumSquaresR / (sampleCount || 1));
-
-        // Convert to dB (-60 dB floor)
-        const currentDbL = rmsL > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsL * 1.6)) : -60;
-        const currentDbR = rmsR > 0.0001 ? Math.max(-60, 20 * Math.log10(rmsR * 1.6)) : -60;
 
         // Peak Hold with Decay (decay adjusted for 25/15 fps)
         const decayRate = meterPowerMode === "eco" ? 1.5 : 1.0;

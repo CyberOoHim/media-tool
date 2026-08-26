@@ -35,7 +35,6 @@ import { SpeedControl, SpeedDropdown } from "@/features/player/speed-control";
 import { cn } from "@/lib/utils";
 import { AudioCueControls } from "./audio-cue-controls";
 import { AudioDspControls } from "./audio-dsp-controls";
-import { getAudioContext } from "./audio-engine";
 import { AudioTrimControls } from "./audio-trim-controls";
 import { AudioVuMeter } from "./audio-vu-meter";
 import { AudioWaveform } from "./audio-waveform";
@@ -69,11 +68,9 @@ export function AudioDeck() {
   const playing = useAudioStore((s) => s.playing);
   const duration = useAudioStore((s) => s.duration);
   const volume = useAudioStore((s) => s.volume);
-  const gainBoost = useAudioStore((s) => s.gainBoost);
   const muted = useAudioStore((s) => s.muted);
   const rate = useAudioStore((s) => s.rate);
   const pitchPreserve = useAudioStore((s) => s.pitchPreserve);
-  const pan = useAudioStore((s) => s.pan);
   const loopRange = useAudioStore((s) => s.loopRange);
   const trimMode = useAudioStore((s) => s.trimMode);
   const trimStart = useAudioStore((s) => s.trimStart);
@@ -81,13 +78,6 @@ export function AudioDeck() {
   const previewTrimMode = useAudioStore((s) => s.previewTrimMode);
   const isExtracting = useAudioStore((s) => s.isExtracting);
 
-  // DSP settings from store
-  const eq = useAudioStore((s) => s.eq);
-  const eqBypass = useAudioStore((s) => s.eqBypass);
-  const lowCut = useAudioStore((s) => s.lowCut);
-  const highCut = useAudioStore((s) => s.highCut);
-  const dynamics = useAudioStore((s) => s.dynamics);
-  const dynamicsBypass = useAudioStore((s) => s.dynamicsBypass);
   const loadAudioFile = useAudioStore((s) => s.loadAudioFile);
   const extractFromVideoSession = useAudioStore((s) => s.extractFromVideoSession);
   const setPlaying = useAudioStore((s) => s.setPlaying);
@@ -104,257 +94,104 @@ export function AudioDeck() {
   const addCuePoint = useAudioStore((s) => s.addCuePoint);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
-
-  // Web Audio Graph Nodes ref
-  const audioGraphRef = useRef<{
-    source: MediaElementAudioSourceNode | null;
-    lowCutNode: BiquadFilterNode;
-    f1: BiquadFilterNode;
-    f2: BiquadFilterNode;
-    f3: BiquadFilterNode;
-    f4: BiquadFilterNode;
-    f5: BiquadFilterNode;
-    highCutNode: BiquadFilterNode;
-    compNode: DynamicsCompressorNode;
-    panNode: StereoPannerNode;
-    gainNode: GainNode;
-    analyserNode: AnalyserNode;
-  } | null>(null);
 
   // Direct Time Jump inputs
   const [jumpHours, setJumpHours] = useState("");
   const [jumpMinutes, setJumpMinutes] = useState("");
   const [jumpSeconds, setJumpSeconds] = useState("");
 
-  // Initialize Web Audio DSP Graph
+  // Sync volume and mute directly with the native audio element
   useEffect(() => {
     const el = audioRef.current;
-    if (!el || audioGraphRef.current) return;
-
-    try {
-      const ctx = getAudioContext();
-      const source = ctx.createMediaElementSource(el);
-
-      // Low Cut (High Pass)
-      const lowCutNode = ctx.createBiquadFilter();
-      lowCutNode.type = "highpass";
-      lowCutNode.frequency.value = 20;
-
-      // 5-Band Equalizer Nodes
-      const f1 = ctx.createBiquadFilter();
-      f1.type = "lowshelf";
-      f1.frequency.value = 80;
-
-      const f2 = ctx.createBiquadFilter();
-      f2.type = "peaking";
-      f2.frequency.value = 300;
-      f2.Q.value = 1.2;
-
-      const f3 = ctx.createBiquadFilter();
-      f3.type = "peaking";
-      f3.frequency.value = 1000;
-      f3.Q.value = 1.2;
-
-      const f4 = ctx.createBiquadFilter();
-      f4.type = "peaking";
-      f4.frequency.value = 3500;
-      f4.Q.value = 1.2;
-
-      const f5 = ctx.createBiquadFilter();
-      f5.type = "highshelf";
-      f5.frequency.value = 10000;
-
-      // High Cut (Low Pass)
-      const highCutNode = ctx.createBiquadFilter();
-      highCutNode.type = "lowpass";
-      highCutNode.frequency.value = 20000;
-
-      // Compressor
-      const compNode = ctx.createDynamicsCompressor();
-
-      // Pan Node
-      const panNode = ctx.createStereoPanner ? ctx.createStereoPanner() : (ctx.createGain() as unknown as StereoPannerNode);
-
-      // Master Gain
-      const gainNode = ctx.createGain();
-
-      // Analyser Node
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-
-      // Connect base DSP chain:
-      // lowCut -> f1 -> f2 -> f3 -> f4 -> f5 -> highCut -> compNode -> panNode -> gainNode -> analyser -> destination
-      lowCutNode.connect(f1);
-      f1.connect(f2);
-      f2.connect(f3);
-      f3.connect(f4);
-      f4.connect(f5);
-      f5.connect(highCutNode);
-      highCutNode.connect(compNode);
-      compNode.connect(panNode);
-      panNode.connect(gainNode);
-      gainNode.connect(analyser);
-      analyser.connect(ctx.destination);
-
-      // Default low-power direct routing: source -> panNode (bypasses 8 filters when flat)
-      source.connect(panNode);
-
-      audioGraphRef.current = {
-        source,
-        lowCutNode,
-        f1,
-        f2,
-        f3,
-        f4,
-        f5,
-        highCutNode,
-        compNode,
-        panNode,
-        gainNode,
-        analyserNode: analyser,
-      };
-
-      setAnalyserNode(analyser);
-    } catch {
-      // Audio graph already connected or running in restricted mode
+    if (el) {
+      el.volume = Math.min(1, Math.max(0, volume));
+      el.muted = muted;
     }
-  }, []);
-
-  // Update Live Web Audio DSP Nodes & Dynamic Filter Bypass whenever Store state changes
-  useEffect(() => {
-    const graph = audioGraphRef.current;
-    if (!graph) return;
-
-    // Check if any DSP filters or EQ processing are active
-    const isDspActive =
-      (!eqBypass &&
-        (eq.low80Hz !== 0 ||
-          eq.lowMid300Hz !== 0 ||
-          eq.mid1kHz !== 0 ||
-          eq.highMid3kHz !== 0 ||
-          eq.high10kHz !== 0)) ||
-      lowCut.enabled ||
-      highCut.enabled ||
-      (dynamics.enabled && !dynamicsBypass);
-
-    // Dynamic routing bypass: if DSP is completely flat/inactive, route source directly to panNode
-    // This stops Apple CoreAudio/WebKit from running 8 biquad IIR filters + compressor equations
-    if (graph.source) {
-      try {
-        graph.source.disconnect();
-        if (isDspActive) {
-          graph.source.connect(graph.lowCutNode);
-        } else {
-          graph.source.connect(graph.panNode);
-        }
-      } catch {
-        // Safe fallback
-      }
-    }
-
-    // EQ bands
-    if (eqBypass) {
-      graph.f1.gain.value = 0;
-      graph.f2.gain.value = 0;
-      graph.f3.gain.value = 0;
-      graph.f4.gain.value = 0;
-      graph.f5.gain.value = 0;
-    } else {
-      graph.f1.gain.value = eq.low80Hz;
-      graph.f2.gain.value = eq.lowMid300Hz;
-      graph.f3.gain.value = eq.mid1kHz;
-      graph.f4.gain.value = eq.highMid3kHz;
-      graph.f5.gain.value = eq.high10kHz;
-    }
-
-    // Low-Cut
-    if (lowCut.enabled) {
-      graph.lowCutNode.frequency.value = lowCut.frequency;
-      graph.lowCutNode.Q.value = lowCut.q;
-    } else {
-      graph.lowCutNode.frequency.value = 10;
-    }
-
-    // High-Cut
-    if (highCut.enabled) {
-      graph.highCutNode.frequency.value = highCut.frequency;
-      graph.highCutNode.Q.value = highCut.q;
-    } else {
-      graph.highCutNode.frequency.value = 22000;
-    }
-
-    // Dynamics Compressor
-    if (dynamics.enabled && !dynamicsBypass) {
-      graph.compNode.threshold.value = dynamics.threshold;
-      graph.compNode.ratio.value = dynamics.ratio;
-      graph.compNode.attack.value = dynamics.attack;
-      graph.compNode.release.value = dynamics.release;
-      graph.compNode.knee.value = dynamics.knee;
-    } else {
-      graph.compNode.threshold.value = 0;
-      graph.compNode.ratio.value = 1;
-    }
-
-    // Stereo Pan
-    if (graph.panNode.pan) {
-      graph.panNode.pan.value = pan;
-    }
-
-    // Master Gain & Makeup
-    const makeup = dynamics.enabled && !dynamicsBypass ? Math.pow(10, dynamics.makeupGain / 20) : 1.0;
-    graph.gainNode.gain.value = (muted ? 0 : volume) * gainBoost * makeup;
-  }, [
-    eq,
-    eqBypass,
-    lowCut,
-    highCut,
-    dynamics,
-    dynamicsBypass,
-    gainBoost,
-    pan,
-    volume,
-    muted,
-  ]);
+  }, [volume, muted]);
 
   // Audio Playhead Time & Loop bounds synchronization
   const handleTimeUpdate = useCallback(() => {
     const el = audioRef.current;
-    if (!el) return;
+    if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
     const cur = el.currentTime;
     setCurrentTime(cur);
 
-    // Range / Trim enforcement
-    if (loopRange && trimStart !== null && trimEnd !== null && trimEnd > trimStart) {
-      if (cur >= trimEnd) {
-        el.currentTime = trimStart;
-        void el.play();
+    // Live Trim/Cut Playback Preview Handling
+    if (previewTrimMode) {
+      const s = trimStart !== null ? trimStart : 0;
+      const e = trimEnd !== null ? trimEnd : el.duration;
+
+      if (trimMode === "trim") {
+        // Retain only [s, e]
+        if (cur < s - 0.05) {
+          el.currentTime = s;
+          return;
+        }
+        if (cur >= e) {
+          if (loopRange) {
+            el.currentTime = s;
+          } else {
+            el.pause();
+            el.currentTime = s;
+            setPlaying(false);
+            toast("Trim preview reached OUT point");
+          }
+          return;
+        }
+      } else {
+        // Cut: Remove [s, e] - automatically skip ahead
+        if (trimStart !== null && trimEnd !== null && cur >= s && cur < e) {
+          el.currentTime = e;
+          toast("Skipped cut period");
+          return;
+        }
       }
-    } else if (previewTrimMode && trimStart !== null && trimEnd !== null) {
-      if (trimMode === "trim" && cur >= trimEnd) {
-        el.pause();
-        el.currentTime = trimStart;
+    } else if (loopRange) {
+      // Loop Range when not in preview trim mode (only if valid in/out points set)
+      if (trimStart !== null && trimEnd !== null && trimEnd > trimStart) {
+        if (cur >= trimEnd || cur < trimStart - 0.05) {
+          el.currentTime = trimStart;
+        }
       }
     }
-  }, [loopRange, previewTrimMode, setCurrentTime, trimEnd, trimMode, trimStart]);
+  }, [loopRange, previewTrimMode, setCurrentTime, setPlaying, trimEnd, trimMode, trimStart]);
+
+  const handleEnded = useCallback(() => {
+    const el = audioRef.current;
+    if (loopRange && el) {
+      const s = trimStart !== null ? trimStart : 0;
+      el.currentTime = s;
+      void el.play();
+    } else {
+      setPlaying(false);
+    }
+  }, [loopRange, setPlaying, trimStart]);
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
-    if (!el || !el.src) return;
-    const ctx = getAudioContext();
-    if (ctx.state === "suspended") {
-      void ctx.resume();
-    }
+    if (!el || !audio?.objectUrl) return;
 
     if (el.paused) {
-      void el.play();
-      setPlaying(true);
+      // If at end of track or trim boundary, restart from start
+      if (trimEnd !== null && previewTrimMode && el.currentTime >= trimEnd) {
+        el.currentTime = trimStart !== null ? trimStart : 0;
+      } else if (el.duration > 0 && el.currentTime >= el.duration - 0.05) {
+        el.currentTime = 0;
+      }
+
+      void el
+        .play()
+        .then(() => {
+          setPlaying(true);
+        })
+        .catch(() => {
+          setPlaying(false);
+        });
     } else {
       el.pause();
       setPlaying(false);
     }
-  }, [setPlaying]);
+  }, [audio?.objectUrl, previewTrimMode, setPlaying, trimEnd, trimStart]);
 
   const seekTo = useCallback(
     (timeSec: number) => {
@@ -455,22 +292,21 @@ export function AudioDeck() {
 
   // High-frequency 60fps playhead timecode sync while playing
   useEffect(() => {
+    if (!playing) return;
     let animId: number;
     const syncTime = () => {
       const el = audioRef.current;
       if (el && !el.paused) {
-        handleTimeUpdate();
+        setCurrentTime(el.currentTime);
         animId = requestAnimationFrame(syncTime);
       }
     };
 
-    if (playing) {
-      animId = requestAnimationFrame(syncTime);
-    }
+    animId = requestAnimationFrame(syncTime);
     return () => {
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [handleTimeUpdate, playing]);
+  }, [playing, setCurrentTime]);
 
   // Jump to Typed Timecode
   const gotoTypedTime = () => {
@@ -684,7 +520,7 @@ export function AudioDeck() {
         </div>
       }
     >
-      {/* Hidden HTML5 Audio Element connected to Web Audio DSP */}
+      {/* Native HTML5 Audio Element */}
       <audio
         ref={audioRef}
         src={audio?.objectUrl}
@@ -693,7 +529,7 @@ export function AudioDeck() {
         onLoadedData={syncMediaProperties}
         onCanPlay={syncMediaProperties}
         onSeeked={syncMediaProperties}
-        onEnded={() => setPlaying(false)}
+        onEnded={handleEnded}
         onPlay={() => {
           syncMediaProperties();
           setPlaying(true);
@@ -708,12 +544,11 @@ export function AudioDeck() {
           <div className="flex flex-col gap-2">
             {/* Visualizer and Waveform */}
             <AudioWaveform
-              analyserNode={analyserNode}
               onSeek={seekTo}
             />
 
             {/* Stereo VU Level Meter */}
-            <AudioVuMeter analyserNode={analyserNode} isPlaying={playing} />
+            <AudioVuMeter isPlaying={playing} />
           </div>
         ) : (
           /* Empty State Drop Box */
