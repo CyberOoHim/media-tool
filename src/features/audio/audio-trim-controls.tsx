@@ -1,12 +1,17 @@
 import {
+  CheckCircle2,
   Clock,
   Download,
+  Flame,
   Scissors,
   Sliders,
+  Volume2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -16,7 +21,8 @@ import {
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { formatTimePrecise } from "@/features/media/format";
+import { downloadBlob } from "@/features/media/download";
+import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/format";
 import { cn } from "@/lib/utils";
 import { useAudioStore } from "./store";
 import type { AudioBitDepth, AudioExportFormat, AudioNormalizeMode } from "./types";
@@ -34,6 +40,10 @@ export function AudioTrimControls() {
   const exportConfig = useAudioStore((s) => s.exportConfig);
   const isExporting = useAudioStore((s) => s.isExporting);
   const exportProgress = useAudioStore((s) => s.exportProgress);
+  const exportProgressData = useAudioStore((s) => s.exportProgressData);
+  const exportResult = useAudioStore((s) => s.exportResult);
+  const setExportResult = useAudioStore((s) => s.setExportResult);
+  const cancelExport = useAudioStore((s) => s.cancelExport);
 
   const setTrimMode = useAudioStore((s) => s.setTrimMode);
   const setTrimStart = useAudioStore((s) => s.setTrimStart);
@@ -384,18 +394,8 @@ export function AudioTrimControls() {
           </p>
         </div>
 
-        {/* Export Action Button & Progress */}
-        <div className="mt-3 flex flex-col gap-2">
-          {isExporting && (
-            <div className="flex flex-col gap-1">
-              <div className="flex justify-between text-[10px]">
-                <span className="text-signal font-bold">Rendering & Encoding Master Audio...</span>
-                <span>{exportProgress}%</span>
-              </div>
-              <Progress value={exportProgress} className="h-1.5" />
-            </div>
-          )}
-
+        {/* Export Action Button, Progress Bar & Result Card */}
+        <div className="mt-3 flex flex-col gap-3">
           <Button
             size="default"
             variant="default"
@@ -405,11 +405,160 @@ export function AudioTrimControls() {
           >
             <Download className="size-4 mr-2" />
             {isExporting
-              ? "Rendering Master File..."
+              ? "Rendering Master Audio..."
               : exportConfig.format === "wav"
                 ? `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitDepth}-bit)`
                 : `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitrateKbps || 192} kbps)`}
           </Button>
+
+          {/* Active Audio Export Progress Panel (matching Video Deck style) */}
+          {isExporting && (
+            <div className="rounded-[var(--radius-sm)] border-2 border-signal bg-theater p-3 font-mono text-xs text-[#fceee2] shadow-inner space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-signal font-bold">
+                  <Flame className="size-3.5 animate-bounce" />
+                  {exportProgressData?.message || "DSP Audio Rendering & Master Encoding..."}
+                </span>
+                <span className="font-bold text-white text-sm">
+                  {exportProgressData?.percent ?? exportProgress}%
+                </span>
+              </div>
+
+              <Progress value={exportProgressData?.percent ?? exportProgress} className="h-2" />
+
+              <div className="flex flex-wrap items-center justify-between text-[11px] text-muted-foreground pt-1 gap-2">
+                <span>
+                  Stage:{" "}
+                  <strong className="text-signal font-bold uppercase">
+                    {exportProgressData?.stage === "dsp"
+                      ? "🎛️ DSP Processing"
+                      : exportProgressData?.stage === "timestretch"
+                        ? "⏱️ WSOLA Time-Stretch"
+                        : "💾 Audio Encoding"}
+                  </strong>
+                </span>
+                <span>
+                  Speed:{" "}
+                  <strong className="text-signal font-bold">
+                    {exportProgressData?.speedMultiplier ?? (exportConfig.applyPlaybackSpeed !== false ? rate : 1.0)}×
+                  </strong>
+                </span>
+                <span>
+                  Channels:{" "}
+                  <strong className="text-white">
+                    {exportProgressData?.channels === 1 ? "Mono" : "Stereo"} ({exportProgressData?.sampleRate ?? exportConfig.sampleRate} Hz)
+                  </strong>
+                </span>
+                <span>
+                  Elapsed:{" "}
+                  <strong className="text-white">{exportProgressData?.elapsedSec ?? 0}s</strong>
+                  {exportProgressData && exportProgressData.estimatedRemainingSec > 0
+                    ? ` (ETA: ${exportProgressData.estimatedRemainingSec}s)`
+                    : ""}
+                </span>
+              </div>
+
+              <div className="pt-1 flex justify-end">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={cancelExport}
+                  className="h-6 px-2 text-[10px]"
+                >
+                  Cancel Export
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Dedicated Audio Export Succeeded Modal / Card */}
+          {exportResult && (
+            <div className="rounded-[var(--radius-sm)] border-2 border-success bg-success/10 p-3.5 font-mono text-xs text-foreground shadow-[2px_2px_0px_var(--color-border)] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-success">
+                  <CheckCircle2 className="size-4" />
+                  <span>Master Audio Export Succeeded</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Badge
+                    variant="outline"
+                    className="font-bold font-mono text-[9px] uppercase border-success bg-success/20 text-success"
+                  >
+                    <span className="flex items-center gap-1">
+                      <Volume2 className="size-3" />
+                      {exportResult.channels === 1 ? "Mono" : "Stereo"} · {exportResult.format}
+                    </span>
+                  </Badge>
+                  <Badge variant="outline" className="border-success text-success font-mono text-[9px]">
+                    {exportResult.speedMultiplier}× Speed
+                  </Badge>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px] text-muted-foreground border-t border-border/50 pt-2">
+                <div>
+                  <span className="text-muted-foreground">File Name:</span>{" "}
+                  <strong className="text-foreground truncate block" title={exportResult.fileName}>
+                    {exportResult.fileName}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Duration:</span>{" "}
+                  <strong className="text-foreground">
+                    {formatTimePrecise(exportResult.durationSec)} ({formatTime(exportResult.durationSec, true)})
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Format & Quality:</span>{" "}
+                  <strong className="text-foreground">
+                    {exportResult.format} {exportResult.bitDepth ? `· ${exportResult.bitDepth}-bit` : exportResult.bitrateKbps ? `· ${exportResult.bitrateKbps} kbps` : ""}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Sample Rate & Layout:</span>{" "}
+                  <strong className="text-foreground">
+                    {(exportResult.sampleRate / 1000).toFixed(1)} kHz · {exportResult.channels === 1 ? "Mono" : "Stereo (2-ch)"}
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Speed & Pitch Mode:</span>{" "}
+                  <strong className="text-foreground">
+                    {exportResult.speedMultiplier}× ({exportResult.pitchPreserve ? "Lock Tone WSOLA" : "Tape Varispeed"})
+                  </strong>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Rendered Size:</span>{" "}
+                  <strong className="text-foreground font-bold text-success">
+                    {formatFileSize(exportResult.fileSize)}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="pt-1 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="success"
+                  size="default"
+                  onClick={() => void downloadBlob(exportResult.blob, exportResult.fileName)}
+                  className="flex-1 gap-2 font-bold shadow-[2px_2px_0px_var(--color-border)]"
+                >
+                  <Download className="size-4" />
+                  Save & Download Audio ({exportResult.format} · {formatFileSize(exportResult.fileSize)})
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="default"
+                  onClick={() => setExportResult(null)}
+                  className="px-2"
+                  title="Dismiss export result"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { toast } from "sonner";
-import { downloadBlob } from "@/features/media/download";
 import { fileStem } from "@/features/media/format";
 import { revokeQuiet } from "@/features/media/object-url";
 import {
@@ -14,6 +13,8 @@ import {
 import { encodeAudioBuffer } from "./audio-exporter";
 import type {
   AudioExportConfig,
+  AudioExportProgress,
+  AudioExportResult,
   AudioSession,
   AudioTrimMode,
   AudioVisualizerMode,
@@ -116,6 +117,8 @@ export interface AudioState {
   exportConfig: AudioExportConfig;
   isExporting: boolean;
   exportProgress: number;
+  exportProgressData: AudioExportProgress | null;
+  exportResult: AudioExportResult | null;
 
   // Actions
   loadAudioFile: (file: File) => Promise<void>;
@@ -166,6 +169,9 @@ export interface AudioState {
 
   // Export Actions
   setExportConfig: (partial: Partial<AudioExportConfig>) => void;
+  setExportProgressData: (data: AudioExportProgress | null) => void;
+  setExportResult: (result: AudioExportResult | null) => void;
+  cancelExport: () => void;
   exportAudio: (overrideOptions?: Partial<AudioExportConfig>) => Promise<void>;
   exportCueSlice: (cue: CuePoint, nextCue?: CuePoint) => Promise<void>;
   setError: (err: string | null) => void;
@@ -213,6 +219,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   exportConfig: { ...DEFAULT_AUDIO_EXPORT_CONFIG },
   isExporting: false,
   exportProgress: 0,
+  exportProgressData: null,
+  exportResult: null,
 
   loadAudioFile: async (file: File) => {
     if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) {
@@ -426,6 +434,13 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   setExportConfig: (partial) =>
     set((s) => ({ exportConfig: { ...s.exportConfig, ...partial } })),
 
+  setExportProgressData: (exportProgressData) => set({ exportProgressData }),
+  setExportResult: (exportResult) => set({ exportResult }),
+  cancelExport: () => {
+    set({ isExporting: false, exportProgress: 0, exportProgressData: null });
+    toast.info("Audio export cancelled");
+  },
+
   exportAudio: async (overrideOptions) => {
     const {
       audio,
@@ -456,7 +471,23 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     const effectivePitchPreserve =
       cfg.applyPlaybackSpeed !== false ? (cfg.pitchPreserve ?? pitchPreserve) : true;
 
-    set({ isExporting: true, exportProgress: 5 });
+    const startTime = performance.now();
+    set({
+      isExporting: true,
+      exportProgress: 5,
+      exportResult: null,
+      exportProgressData: {
+        percent: 5,
+        stage: "dsp",
+        message: "Rendering DSP Audio & Tone Curves...",
+        elapsedSec: 0,
+        estimatedRemainingSec: 2,
+        speedMultiplier: effectiveRate,
+        channels: cfg.channels,
+        sampleRate: cfg.sampleRate,
+        format: cfg.format.toUpperCase(),
+      },
+    });
 
     try {
       const renderedBuffer = await renderProcessedAudioOffline({
@@ -482,10 +513,48 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         pitchPreserve: effectivePitchPreserve,
       });
 
-      set({ exportProgress: 50 });
+      const elapsedMid = Math.max(0.1, (performance.now() - startTime) / 1000);
+      const isStretching = Math.abs(effectiveRate - 1.0) >= 0.01;
+
+      set({
+        exportProgress: 50,
+        exportProgressData: {
+          percent: 50,
+          stage: isStretching ? "timestretch" : "encoding",
+          message: isStretching
+            ? `WSOLA Time-Stretching (${effectiveRate}× speed)...`
+            : `Encoding ${cfg.format.toUpperCase()} bitstream...`,
+          elapsedSec: Math.round(elapsedMid * 10) / 10,
+          estimatedRemainingSec: Math.max(0.5, Math.round(elapsedMid * 0.8 * 10) / 10),
+          speedMultiplier: effectiveRate,
+          channels: cfg.channels,
+          sampleRate: cfg.sampleRate,
+          format: cfg.format.toUpperCase(),
+        },
+      });
 
       const encoded = await encodeAudioBuffer(renderedBuffer, cfg, (progress) => {
-        set({ exportProgress: Math.min(99, 50 + Math.round(progress * 0.49)) });
+        const currentPercent = Math.min(99, 50 + Math.round(progress * 0.49));
+        const elapsed = Math.max(0.1, (performance.now() - startTime) / 1000);
+        const remaining =
+          currentPercent > 5
+            ? Math.max(0.2, Math.round(((elapsed / (currentPercent / 100)) - elapsed) * 10) / 10)
+            : 1;
+
+        set({
+          exportProgress: currentPercent,
+          exportProgressData: {
+            percent: currentPercent,
+            stage: "encoding",
+            message: `Encoding ${cfg.format.toUpperCase()} bitstream (${Math.round(progress * 100)}%)...`,
+            elapsedSec: Math.round(elapsed * 10) / 10,
+            estimatedRemainingSec: remaining,
+            speedMultiplier: effectiveRate,
+            channels: cfg.channels,
+            sampleRate: cfg.sampleRate,
+            format: cfg.format.toUpperCase(),
+          },
+        });
       });
 
       const baseName = fileStem(audio.fileName);
@@ -496,11 +565,50 @@ export const useAudioStore = create<AudioState>((set, get) => ({
           : "";
       const outFileName = `${baseName}${modeSuffix}${speedSuffix}.${encoded.extension}`;
 
-      downloadBlob(encoded.blob, outFileName);
-      set({ isExporting: false, exportProgress: 100 });
-      toast.success(`Audio Exported: ${outFileName}`);
+      const totalElapsed = Math.max(0.1, (performance.now() - startTime) / 1000);
+
+      const result: AudioExportResult = {
+        blob: encoded.blob,
+        fileName: outFileName,
+        fileSize: encoded.blob.size,
+        format: encoded.extension.toUpperCase(),
+        sampleRate: cfg.sampleRate,
+        channels: cfg.channels,
+        bitDepth: cfg.format === "wav" ? cfg.bitDepth : undefined,
+        bitrateKbps: cfg.format !== "wav" ? cfg.bitrateKbps : undefined,
+        durationSec: renderedBuffer.duration,
+        speedMultiplier: effectiveRate,
+        pitchPreserve: effectivePitchPreserve,
+        normalize: cfg.normalize,
+        applyEq: cfg.applyEq && !eqBypass,
+        applyDynamics: cfg.applyDynamics && !dynamicsBypass,
+      };
+
+      set({
+        isExporting: false,
+        exportProgress: 100,
+        exportProgressData: {
+          percent: 100,
+          stage: "complete",
+          message: "Render & Encoding Complete",
+          elapsedSec: Math.round(totalElapsed * 10) / 10,
+          estimatedRemainingSec: 0,
+          speedMultiplier: effectiveRate,
+          channels: cfg.channels,
+          sampleRate: cfg.sampleRate,
+          format: cfg.format.toUpperCase(),
+        },
+        exportResult: result,
+      });
+
+      toast.success(`Export succeeded! Ready to download: ${outFileName}`);
     } catch (err) {
-      set({ isExporting: false, exportProgress: 0 });
+      set({
+        isExporting: false,
+        exportProgress: 0,
+        exportProgressData: null,
+        exportResult: null,
+      });
       toast.error(err instanceof Error ? err.message : "Export failed");
     }
   },
@@ -531,7 +639,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     const effectivePitchPreserve =
       exportConfig.applyPlaybackSpeed !== false ? pitchPreserve : true;
 
-    set({ isExporting: true, exportProgress: 10 });
+    set({ isExporting: true, exportProgress: 10, exportResult: null });
     try {
       const renderedBuffer = await renderProcessedAudioOffline({
         sourceBuffer: audio.audioBuffer,
@@ -569,11 +677,37 @@ export const useAudioStore = create<AudioState>((set, get) => ({
           : "";
       const outFileName = `${fileStem(audio.fileName)}_${safeLabel}${speedSuffix}.${encoded.extension}`;
 
-      downloadBlob(encoded.blob, outFileName);
-      set({ isExporting: false, exportProgress: 100 });
-      toast.success(`Exported slice: ${outFileName}`);
+      const result: AudioExportResult = {
+        blob: encoded.blob,
+        fileName: outFileName,
+        fileSize: encoded.blob.size,
+        format: encoded.extension.toUpperCase(),
+        sampleRate: exportConfig.sampleRate,
+        channels: exportConfig.channels,
+        bitDepth: exportConfig.format === "wav" ? exportConfig.bitDepth : undefined,
+        bitrateKbps: exportConfig.format !== "wav" ? exportConfig.bitrateKbps : undefined,
+        durationSec: renderedBuffer.duration,
+        speedMultiplier: effectiveRate,
+        pitchPreserve: effectivePitchPreserve,
+        normalize: "peak-0db",
+        applyEq: !eqBypass,
+        applyDynamics: !dynamicsBypass,
+      };
+
+      set({
+        isExporting: false,
+        exportProgress: 100,
+        exportProgressData: null,
+        exportResult: result,
+      });
+      toast.success(`Exported slice: ${outFileName}. Click Save to download.`);
     } catch (err) {
-      set({ isExporting: false, exportProgress: 0 });
+      set({
+        isExporting: false,
+        exportProgress: 0,
+        exportProgressData: null,
+        exportResult: null,
+      });
       toast.error(err instanceof Error ? err.message : "Failed to export slice");
     }
   },

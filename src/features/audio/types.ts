@@ -69,5 +69,34 @@ export interface AudioExportConfig {
   pitchPreserve?: boolean;
 }
 
+export interface AudioExportProgress {
+  percent: number;
+  message?: string;
+  stage: "dsp" | "timestretch" | "encoding" | "complete";
+  elapsedSec: number;
+  estimatedRemainingSec: number;
+  speedMultiplier: number;
+  channels: number;
+  sampleRate: number;
+  format: string;
+}
+
+export interface AudioExportResult {
+  blob: Blob;
+  fileName: string;
+  fileSize: number;
+  format: string;
+  sampleRate: number;
+  channels: number;
+  bitDepth?: number;
+  bitrateKbps?: number;
+  durationSec: number;
+  speedMultiplier: number;
+  pitchPreserve: boolean;
+  normalize: AudioNormalizeMode;
+  applyEq: boolean;
+  applyDynamics: boolean;
+}
+
 export type AudioVisualizerMode = "waveform" | "spectrum" | "oscilloscope" | "stereo-split";
 export type PhosphorTheme = "green" | "cyan" | "amber" | "matrix";
