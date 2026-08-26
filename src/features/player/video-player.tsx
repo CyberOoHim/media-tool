@@ -235,6 +235,16 @@ export function VideoPlayer() {
     el.currentTime = Math.min(el.duration, Math.max(0, el.currentTime + delta));
   }, []);
 
+  const stepMs = useCallback((deltaMs: number) => {
+    const el = videoRef.current;
+    if (!el || !Number.isFinite(el.duration)) return;
+    el.pause();
+    setPlaying(false);
+    const target = Math.max(0, Math.min(el.duration, el.currentTime + deltaMs / 1000));
+    el.currentTime = target;
+    setCurrent(target);
+  }, []);
+
   const capture = useCallback(async () => {
     const el = videoRef.current;
     const session = useMediaStore.getState().video;
@@ -555,6 +565,7 @@ export function VideoPlayer() {
     setPreviewTrimMode,
     setTrimEnd,
     setTrimStart,
+    stepMs,
     toggleLoop,
     toggleMute,
     togglePlay,
@@ -1254,8 +1265,32 @@ export function VideoPlayer() {
       </div>
 
       {/* Touch Jog Wheel Deck (Frame-accurate tactile scrubbing) */}
-      <div className="mt-3">
-        <JogDial onStepFrame={stepFrame} disabled={disabled} />
+      <div className="mt-3 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+        <div className="flex-1">
+          <JogDial onStepFrame={stepFrame} disabled={disabled} />
+        </div>
+        <div className="flex items-center justify-end gap-1 shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+            disabled={disabled}
+            onClick={() => stepMs(-50)}
+            title="Step backward 50ms (,)"
+          >
+            -50ms
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+            disabled={disabled}
+            onClick={() => stepMs(50)}
+            title="Step forward 50ms (.)"
+          >
+            +50ms
+          </Button>
+        </div>
       </div>
 
       {/* Main Transport Deck Controls & LCD Timecode */}
@@ -1287,7 +1322,7 @@ export function VideoPlayer() {
               <Rewind className="size-4" />
             </Button>
           </Hint>
-          <Hint label="Previous Frame (,)">
+          <Hint label="Previous Frame">
             <Button
               variant="outline"
               size="sm"
@@ -1299,6 +1334,18 @@ export function VideoPlayer() {
               }}
             >
               <SkipBack className="size-4" />
+            </Button>
+          </Hint>
+          <Hint label="Step backward 50ms (,)">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+              disabled={disabled}
+              onClick={() => stepMs(-50)}
+              title="Step backward 50ms (,)"
+            >
+              -50ms
             </Button>
           </Hint>
 
@@ -1314,7 +1361,19 @@ export function VideoPlayer() {
             {playing ? "Pause" : "Play"}
           </Button>
 
-          <Hint label="Next Frame (.)">
+          <Hint label="Step forward 50ms (.)">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+              disabled={disabled}
+              onClick={() => stepMs(50)}
+              title="Step forward 50ms (.)"
+            >
+              +50ms
+            </Button>
+          </Hint>
+          <Hint label="Next Frame">
             <Button
               variant="outline"
               size="sm"

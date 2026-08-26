@@ -627,11 +627,11 @@ export function AudioDeck() {
               disabled={!audio}
             />
             {/* Step buttons */}
-            <div className="flex items-center gap-0.5">
+            <div className="flex items-center gap-1">
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 px-1.5 font-mono text-[10px]"
+                className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
                 disabled={!audio}
                 onClick={() => stepMs(-50)}
                 title="Step backward 50ms (,)"
@@ -641,7 +641,7 @@ export function AudioDeck() {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 px-1.5 font-mono text-[10px]"
+                className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
                 disabled={!audio}
                 onClick={() => stepMs(50)}
                 title="Step forward 50ms (.)"
@@ -712,12 +712,22 @@ export function AudioDeck() {
             >
               <Rewind className="size-3.5" />
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+              disabled={!audio}
+              onClick={() => stepMs(-50)}
+              title="Step backward 50ms (,)"
+            >
+              -50ms
+            </Button>
 
             {/* Main Play/Pause Button */}
             <Button
               size="sm"
               variant={playing ? "default" : "outline"}
-              className="h-8 px-3 font-mono text-xs font-bold uppercase tracking-wider"
+              className="h-8 min-w-20 px-3 font-mono text-xs font-bold uppercase tracking-wider touch-manipulation active:scale-95"
               disabled={!audio}
               onClick={togglePlay}
               title="Play / Pause (Space)"
@@ -726,6 +736,16 @@ export function AudioDeck() {
               {playing ? "PAUSE" : "PLAY"}
             </Button>
 
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+              disabled={!audio}
+              onClick={() => stepMs(50)}
+              title="Step forward 50ms (.)"
+            >
+              +50ms
+            </Button>
             <Button
               size="sm"
               variant="outline"
