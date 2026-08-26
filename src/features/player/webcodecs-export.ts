@@ -1,4 +1,5 @@
 import { ArrayBufferTarget, Muxer as Mp4Muxer } from "mp4-muxer";
+import { extractMp4AudioToAdts } from "./mp4-audio-demuxer";
 import {
   AUDIO_BITRATE_BPS,
   calculateExportResolution,
@@ -183,9 +184,20 @@ export async function exportVideoWebCodecs({
 
       let decodedBuffer: AudioBuffer | null = null;
       try {
+        // First attempt: Standard decodeAudioData
         decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
       } catch (decodeErr) {
-        console.warn("AudioContext decodeAudioData failed:", decodeErr);
+        console.warn("Direct AudioContext decodeAudioData failed, attempting ADTS demux fallback:", decodeErr);
+        // Fallback for Safari/WebKit: Demux MP4 AAC stream to ADTS and decode that
+        try {
+          const adtsTrack = extractMp4AudioToAdts(arrayBuffer);
+          if (adtsTrack && adtsTrack.adtsData.length > 0) {
+            const adtsArrayBuffer = new Uint8Array(adtsTrack.adtsData).buffer as ArrayBuffer;
+            decodedBuffer = await audioCtx.decodeAudioData(adtsArrayBuffer);
+          }
+        } catch (adtsErr) {
+          console.warn("ADTS audio decode fallback failed:", adtsErr);
+        }
       } finally {
         void audioCtx.close();
       }
@@ -197,27 +209,34 @@ export async function exportVideoWebCodecs({
 
         // Check WebCodecs AudioEncoder availability and probe codec support
         if (typeof AudioEncoder !== "undefined" && typeof AudioData !== "undefined") {
-          // 1. Probe AAC support (1024 frames/chunk)
+          // 1. Probe AAC support (1024 frames/chunk) across multiple profile strings
           let aacSupported = false;
-          try {
-            if (typeof AudioEncoder.isConfigSupported === "function") {
-              const aacCheck = await AudioEncoder.isConfigSupported({
-                codec: "mp4a.40.2",
-                numberOfChannels: targetChannels,
-                sampleRate: preferredSampleRate,
-                bitrate: AUDIO_BITRATE_BPS,
-              });
-              aacSupported = Boolean(aacCheck.supported);
-            } else {
-              aacSupported = true;
+          const aacCandidates = ["mp4a.40.2", "mp4a.40.02", "mp4a.67"];
+          for (const cand of aacCandidates) {
+            if (aacSupported) break;
+            try {
+              if (typeof AudioEncoder.isConfigSupported === "function") {
+                const aacCheck = await AudioEncoder.isConfigSupported({
+                  codec: cand,
+                  numberOfChannels: targetChannels,
+                  sampleRate: preferredSampleRate,
+                  bitrate: AUDIO_BITRATE_BPS,
+                });
+                if (aacCheck.supported) {
+                  aacSupported = true;
+                  chosenCodecString = cand;
+                }
+              } else {
+                aacSupported = true;
+                chosenCodecString = cand;
+              }
+            } catch {
+              // Try next candidate
             }
-          } catch {
-            aacSupported = false;
           }
 
           if (aacSupported) {
             chosenAudioCodec = "aac";
-            chosenCodecString = "mp4a.40.2";
             chosenFrameSize = 1024;
             chosenSampleRate = preferredSampleRate;
           } else {
@@ -377,12 +396,21 @@ export async function exportVideoWebCodecs({
     firstTimestampBehavior: "offset",
   });
 
-  // Write pre-encoded audio chunks into muxer
-  if (hasAudioTrack && audioChunks.length > 0) {
-    for (const { chunk, meta } of audioChunks) {
+  // Audio Chunk Interleaving Helper:
+  // Feeds audio chunks in chronological lockstep with video chunks to ensure strict interleaving
+  // in the MP4 mdat container, preventing audio buffer underruns in Safari, QuickTime, iOS, and Android.
+  let nextAudioChunkIdx = 0;
+  const drainAudioChunksUpTo = (targetTimestampUs: number) => {
+    if (!hasAudioTrack) return;
+    while (
+      nextAudioChunkIdx < audioChunks.length &&
+      audioChunks[nextAudioChunkIdx].chunk.timestamp <= targetTimestampUs
+    ) {
+      const { chunk, meta } = audioChunks[nextAudioChunkIdx];
       mp4Muxer.addAudioChunk(chunk, meta);
+      nextAudioChunkIdx++;
     }
-  }
+  };
 
   // 5. Hardware Video Encoder Setup (with dynamic AVC Level negotiation & VBR mode)
   let _encodedChunksCount = 0;
@@ -391,6 +419,8 @@ export async function exportVideoWebCodecs({
   const videoEncoder = new VideoEncoder({
     output: (chunk, meta) => {
       _encodedChunksCount++;
+      // Interleave audio chunks up to the timestamp of the arriving video chunk
+      drainAudioChunksUpTo(chunk.timestamp);
       mp4Muxer.addVideoChunk(chunk, meta);
     },
     error: (err) => {
@@ -603,6 +633,9 @@ export async function exportVideoWebCodecs({
 
   await videoEncoder.flush();
   videoEncoder.close();
+
+  // Drain any remaining trailing audio chunks past the last video frame
+  drainAudioChunksUpTo(Infinity);
 
   mp4Muxer.finalize();
   const buffer = mp4Muxer.target.buffer;
