@@ -1,33 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
-const PLAYBACK_RATES = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4];
-const PLAYBACK_RATE_MIN = 0.1;
-const PLAYBACK_RATE_MAX = 16.0;
-const PLAYBACK_RATE_SLIDER_MAX = 4.0;
-const PLAYBACK_RATE_DEFAULT = 1.0;
-
-function clampRate(rate, min = PLAYBACK_RATE_MIN, max = PLAYBACK_RATE_MAX) {
-  if (Number.isNaN(rate) || !Number.isFinite(rate)) return PLAYBACK_RATE_DEFAULT;
-  const rounded = Math.round(rate * 100) / 100;
-  return Math.min(max, Math.max(min, rounded));
-}
-
-function nudgeRate(current, delta) {
-  return clampRate(current + delta);
-}
-
-function nextRate(current, dir) {
-  const currentClamped = clampRate(current);
-  if (dir === 1) {
-    const next = PLAYBACK_RATES.find((r) => r > currentClamped + 0.001);
-    return next ?? PLAYBACK_RATES[PLAYBACK_RATES.length - 1];
-  } else {
-    const reversed = [...PLAYBACK_RATES].reverse();
-    const prev = reversed.find((r) => r < currentClamped - 0.001);
-    return prev ?? PLAYBACK_RATES[0];
-  }
-}
+import {
+  COMMON_PLAYBACK_RATES,
+  PLAYBACK_RATES,
+  PLAYBACK_RATE_DEFAULT,
+  PLAYBACK_RATE_MAX,
+  PLAYBACK_RATE_MIN,
+  PLAYBACK_RATE_SLIDER_MAX,
+  SPEED_DROPDOWN_OPTIONS,
+  SPEED_PRESETS,
+  clampRate,
+  nextRate,
+  nudgeRate,
+} from "../src/features/player/rates.ts";
 
 test("Playback rate constants and bounds", () => {
   assert.equal(PLAYBACK_RATE_MIN, 0.1);
@@ -37,10 +22,47 @@ test("Playback rate constants and bounds", () => {
   assert.ok(PLAYBACK_RATES.includes(1.0), "Default 1.0 must be in presets");
   assert.ok(PLAYBACK_RATES.includes(0.1), "0.1 slow-mo must be in presets");
   assert.ok(PLAYBACK_RATES.includes(4.0), "4.0 high-speed must be in presets");
-  
+
   // Sorted in ascending order
   const sorted = [...PLAYBACK_RATES].sort((a, b) => a - b);
   assert.deepEqual([...PLAYBACK_RATES], sorted);
+});
+
+test("Playback rates include extended options: 2.0, 1.75, 1.5, 1.4 to 0.6 in 0.05 steps, and 0.5", () => {
+  // Required anchors
+  assert.ok(PLAYBACK_RATES.includes(2.0), "Includes 2.0");
+  assert.ok(PLAYBACK_RATES.includes(1.75), "Includes 1.75");
+  assert.ok(PLAYBACK_RATES.includes(1.5), "Includes 1.5");
+  assert.ok(PLAYBACK_RATES.includes(0.5), "Includes 0.5");
+
+  // Steps from 0.60 to 1.40 in 0.05 increments (17 values)
+  for (let r = 60; r <= 140; r += 5) {
+    const val = Number((r / 100).toFixed(2));
+    assert.ok(
+      PLAYBACK_RATES.includes(val),
+      `PLAYBACK_RATES should include ${val}× in range 0.6 to 1.4 (step 0.05)`,
+    );
+  }
+});
+
+test("SPEED_DROPDOWN_OPTIONS contains comprehensive options with valid labels", () => {
+  assert.ok(SPEED_DROPDOWN_OPTIONS.length >= 20);
+
+  // Check key dropdown values
+  const values = SPEED_DROPDOWN_OPTIONS.map((o) => o.value);
+  assert.ok(values.includes(2.0));
+  assert.ok(values.includes(1.75));
+  assert.ok(values.includes(1.5));
+  assert.ok(values.includes(0.5));
+
+  for (let r = 60; r <= 140; r += 5) {
+    const val = Number((r / 100).toFixed(2));
+    assert.ok(values.includes(val), `Dropdown should contain ${val}×`);
+  }
+
+  // Check label format
+  const normOption = SPEED_DROPDOWN_OPTIONS.find((o) => o.value === 1.0);
+  assert.ok(normOption?.label.includes("1.0×"));
 });
 
 test("clampRate correctly constrains and normalizes values", () => {
@@ -63,14 +85,16 @@ test("nudgeRate performs fine-grained increments and decrements", () => {
 });
 
 test("nextRate steps correctly across presets", () => {
-  // Step up from 1.0
-  assert.equal(nextRate(1.0, 1), 1.25);
-  // Step down from 1.0
-  assert.equal(nextRate(1.0, -1), 0.75);
-  // Step up from intermediate rate 1.15
-  assert.equal(nextRate(1.15, 1), 1.25);
-  // Step down from intermediate rate 1.15
-  assert.equal(nextRate(1.15, -1), 1.0);
+  // Step up from 1.0 (next in 0.05 step is 1.05)
+  assert.equal(nextRate(1.0, 1), 1.05);
+  // Step down from 1.0 (prev in 0.05 step is 0.95)
+  assert.equal(nextRate(1.0, -1), 0.95);
+  // Step up from 1.4 (next is 1.5)
+  assert.equal(nextRate(1.4, 1), 1.5);
+  // Step up from 1.5 (next is 1.75)
+  assert.equal(nextRate(1.5, 1), 1.75);
+  // Step up from 1.75 (next is 2.0)
+  assert.equal(nextRate(1.75, 1), 2.0);
   // Upper boundary
   assert.equal(nextRate(4.0, 1), 4.0);
   // Lower boundary

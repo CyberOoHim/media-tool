@@ -52,13 +52,14 @@ import { cn } from "@/lib/utils";
 import { captureVideoFrame } from "./capture-frame";
 import { JogDial } from "./jog-dial";
 import {
+  COMMON_PLAYBACK_RATES,
   FRAME_STEP,
   PLAYBACK_RATES,
   clampRate,
   nextRate,
   nudgeRate,
 } from "./rates";
-import { SpeedControl } from "./speed-control";
+import { SpeedControl, SpeedDropdown } from "./speed-control";
 import { TrimControls } from "./trim-controls";
 
 export function VideoPlayer() {
@@ -1520,11 +1521,17 @@ export function VideoPlayer() {
 
             {/* Speed Selector & Direct Jump Row */}
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/50 pt-3">
-              {/* Speed Selector Chips & Fine Control */}
+              {/* Speed Selector Dropdown, Chips & Fine Control */}
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
                   Deck Speed:
                 </span>
+                <SpeedDropdown
+                  rate={rate}
+                  onRateChange={applyRate}
+                  disabled={disabled}
+                  className="w-28 sm:w-32"
+                />
                 <SpeedControl
                   rate={rate}
                   onRateChange={applyRate}
@@ -1533,7 +1540,7 @@ export function VideoPlayer() {
                   onPitchPreserveChange={togglePitchPreserve}
                 />
                 <div className="flex flex-wrap gap-1.5">
-                  {PLAYBACK_RATES.map((r) => (
+                  {COMMON_PLAYBACK_RATES.map((r) => (
                     <Button
                       key={r}
                       size="sm"

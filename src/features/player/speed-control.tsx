@@ -11,6 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Hint } from "@/components/ui/tooltip";
@@ -19,10 +26,80 @@ import {
   PLAYBACK_RATE_MAX,
   PLAYBACK_RATE_MIN,
   PLAYBACK_RATE_SLIDER_MAX,
+  SPEED_DROPDOWN_OPTIONS,
   SPEED_PRESETS,
   clampRate,
   nudgeRate,
 } from "./rates";
+
+export interface SpeedDropdownProps {
+  rate: number;
+  onRateChange: (rate: number) => void;
+  disabled?: boolean;
+  className?: string;
+  size?: "sm" | "default";
+}
+
+export function SpeedDropdown({
+  rate,
+  onRateChange,
+  disabled = false,
+  className,
+  size = "sm",
+}: SpeedDropdownProps) {
+  const isCustom = !SPEED_DROPDOWN_OPTIONS.some((o) => Math.abs(o.value - rate) < 0.001);
+
+  return (
+    <Select
+      value={String(rate)}
+      onValueChange={(val) => {
+        const parsed = Number.parseFloat(val);
+        if (!Number.isNaN(parsed)) {
+          onRateChange(clampRate(parsed));
+        }
+      }}
+      disabled={disabled}
+    >
+      <SelectTrigger
+        className={cn(
+          "font-mono font-bold touch-manipulation",
+          size === "sm" ? "h-8 px-2 text-xs" : "h-9 px-3 text-sm",
+          Math.abs(rate - 1.0) >= 0.001 ? "border-signal text-signal" : "border-border",
+          className,
+        )}
+        aria-label="Select playback speed"
+      >
+        <SelectValue placeholder={`${rate}×`}>
+          <span className="flex items-center gap-1">
+            <Gauge className="size-3.5 text-primary shrink-0" />
+            <span>{rate}×</span>
+          </span>
+        </SelectValue>
+      </SelectTrigger>
+      <SelectContent className="max-h-72 font-mono text-xs">
+        {isCustom ? (
+          <SelectItem value={String(rate)} className="font-bold text-signal">
+            Custom ({rate}×)
+          </SelectItem>
+        ) : null}
+        {SPEED_DROPDOWN_OPTIONS.map((opt) => (
+          <SelectItem
+            key={opt.value}
+            value={String(opt.value)}
+            className={cn(
+              "font-mono text-xs",
+              opt.value === 1.0 && "font-bold text-foreground",
+              opt.value === 2.0 && "font-bold text-primary",
+              opt.value === 0.5 && "font-bold text-primary",
+            )}
+          >
+            {opt.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 export interface SpeedControlProps {
   rate: number;
@@ -31,7 +108,7 @@ export interface SpeedControlProps {
   pitchPreserve?: boolean;
   onPitchPreserveChange?: (preserve: boolean) => void;
   className?: string;
-  variant?: "transport" | "full" | "chips";
+  variant?: "transport" | "full" | "chips" | "dropdown";
 }
 
 export function SpeedControl({
@@ -64,6 +141,17 @@ export function SpeedControl({
   };
 
   const isDefaultRate = Math.abs(rate - 1.0) < 0.001;
+
+  if (variant === "dropdown") {
+    return (
+      <SpeedDropdown
+        rate={rate}
+        onRateChange={onRateChange}
+        disabled={disabled}
+        className={className}
+      />
+    );
+  }
 
   if (variant === "chips") {
     return (
@@ -156,6 +244,20 @@ export function SpeedControl({
                 </Button>
               </Hint>
             </div>
+          </div>
+
+          {/* Quick Speed Preset Dropdown */}
+          <div className="space-y-1 mb-3">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+              Speed Options Dropdown:
+            </label>
+            <SpeedDropdown
+              rate={rate}
+              onRateChange={onRateChange}
+              disabled={disabled}
+              className="w-full"
+              size="default"
+            />
           </div>
 
           {/* Section 1: Fine Slider with Step Nudge Buttons */}
