@@ -1,6 +1,10 @@
 import { ArrayBufferTarget, Muxer as Mp4Muxer } from "mp4-muxer";
 import {
+  AUDIO_BITRATE_BPS,
   calculateExportResolution,
+  calculateKeyframeInterval,
+  resolveExportFps,
+  selectAvcCodecString,
   type ExportConfig,
   type ExportProgress,
   type ExportResult,
@@ -10,6 +14,11 @@ export interface ExportSegment {
   startSec: number;
   endSec: number;
 }
+
+const BACKPRESSURE_POLL_MS = 6; // 6ms polling interval (~1 frame at 165Hz iPad ProMotion)
+const BACKPRESSURE_MAX_RETRIES = 500; // ~3 seconds safety limit to prevent permanent spin
+const MICROTASK_YIELD_MS = 1; // Yield to browser event loop and allow GPU power-gating
+const SEEK_TIMEOUT_MS = 600; // 600ms safety timeout for video seek operations on mobile/iPad
 
 /**
  * Check if WebCodecs VideoEncoder is available and hardware accelerated in the browser
@@ -110,7 +119,11 @@ export async function exportVideoWebCodecs({
     config.customHeight,
   );
 
-  const targetFps = config.fps > 0 ? config.fps : 30;
+  const targetFps = resolveExportFps(
+    config.fpsPreset,
+    config.customFps,
+    config.fps > 0 ? config.fps : 30,
+  );
   const frameDurationSec = 1 / targetFps;
   const totalFrames = Math.max(1, Math.round(totalOutputDuration * targetFps));
 
@@ -192,7 +205,7 @@ export async function exportVideoWebCodecs({
                 codec: "mp4a.40.2",
                 numberOfChannels: targetChannels,
                 sampleRate: preferredSampleRate,
-                bitrate: 192_000,
+                bitrate: AUDIO_BITRATE_BPS,
               });
               aacSupported = Boolean(aacCheck.supported);
             } else {
@@ -216,7 +229,7 @@ export async function exportVideoWebCodecs({
                   codec: "opus",
                   numberOfChannels: targetChannels,
                   sampleRate: 48000,
-                  bitrate: 192_000,
+                  bitrate: AUDIO_BITRATE_BPS,
                 });
                 opusSupported = Boolean(opusCheck.supported);
               } else {
@@ -279,7 +292,7 @@ export async function exportVideoWebCodecs({
               codec: chosenCodecString,
               numberOfChannels: targetChannels,
               sampleRate: chosenSampleRate,
-              bitrate: 192_000,
+              bitrate: AUDIO_BITRATE_BPS,
             });
 
             const frameSize = chosenFrameSize;
@@ -371,7 +384,7 @@ export async function exportVideoWebCodecs({
     }
   }
 
-  // 5. Hardware Video Encoder Setup (with VBR mode & efficient bitrate allocation)
+  // 5. Hardware Video Encoder Setup (with dynamic AVC Level negotiation & VBR mode)
   let _encodedChunksCount = 0;
   let encoderError: Error | null = null;
 
@@ -386,26 +399,36 @@ export async function exportVideoWebCodecs({
   });
 
   const bitrate = Math.max(200_000, Math.round((config.bitrateMbps || 8) * 1_000_000));
+  const primaryCodecString = selectAvcCodecString(width, height, targetFps);
 
-  // AVC / H.264 profile: High Profile 4.0 'avc1.640028' (1080p60) or Main 'avc1.4d002a'
-  const videoCodecString = "avc1.640028";
+  // Candidate AVC codec strings from highest capability down to baseline
+  const ALL_AVC_CANDIDATES = [
+    "avc1.640033", // High Profile Level 5.1 (4K)
+    "avc1.640032", // High Profile Level 5.0 (1440p / 1080p60)
+    "avc1.640028", // High Profile Level 4.0 (1080p30)
+    "avc1.64001f", // High Profile Level 3.1 (720p / 480p)
+    "avc1.4d002a", // Main Profile Level 4.2
+    "avc1.4d001f", // Main Profile Level 3.1
+    "avc1.4d001e", // Main Profile Level 3.0
+    "avc1.42001e", // Baseline Level 3.0
+  ];
 
-  // Configure with hardware acceleration & VBR (Variable Bitrate) mode to prevent bit stuffing
-  try {
-    videoEncoder.configure({
-      codec: videoCodecString,
-      width,
-      height,
-      bitrate,
-      bitrateMode: "variable",
-      framerate: targetFps,
-      hardwareAcceleration: "prefer-hardware",
-      avc: { format: "avc" },
-    });
-  } catch {
+  // Candidates start at or below the primary codec to prevent unnecessary profile escalation
+  const primaryIdx = ALL_AVC_CANDIDATES.indexOf(primaryCodecString);
+  const candidateCodecs = Array.from(
+    new Set(
+      primaryIdx >= 0
+        ? ALL_AVC_CANDIDATES.slice(primaryIdx)
+        : [primaryCodecString, "avc1.4d002a", "avc1.4d001e", "avc1.42001e"],
+    ),
+  );
+
+  let configuredSuccessfully = false;
+  for (const candidate of candidateCodecs) {
+    if (configuredSuccessfully) break;
     try {
       videoEncoder.configure({
-        codec: "avc1.4d002a",
+        codec: candidate,
         width,
         height,
         bitrate,
@@ -414,26 +437,45 @@ export async function exportVideoWebCodecs({
         hardwareAcceleration: "prefer-hardware",
         avc: { format: "avc" },
       });
+      configuredSuccessfully = true;
+      break;
     } catch {
-      // Fallback without explicit bitrateMode if unsupported on legacy implementations
-      videoEncoder.configure({
-        codec: "avc1.4d002a",
-        width,
-        height,
-        bitrate,
-        framerate: targetFps,
-        hardwareAcceleration: "prefer-hardware",
-        avc: { format: "avc" },
-      });
+      try {
+        // Fallback without explicit bitrateMode if unsupported on legacy browsers
+        videoEncoder.configure({
+          codec: candidate,
+          width,
+          height,
+          bitrate,
+          framerate: targetFps,
+          hardwareAcceleration: "prefer-hardware",
+          avc: { format: "avc" },
+        });
+        configuredSuccessfully = true;
+        break;
+      } catch {
+        // Try next codec in chain
+      }
     }
+  }
+
+  if (!configuredSuccessfully) {
+    // Ultimate fallback configuration
+    videoEncoder.configure({
+      codec: "avc1.4d002a",
+      width,
+      height,
+      bitrate,
+      framerate: targetFps,
+      avc: { format: "avc" },
+    });
   }
 
   // 6. Frame-accurate Video Extraction & Hardware Encoding Loop
   let frameIndex = 0;
-  let outputTimestampUs = 0;
   const loopStartTime = performance.now();
-  // Keyframe interval: every 4 seconds (reduces I-frame bitrate overhead while keeping seek smoothness)
-  const keyframeInterval = Math.max(1, Math.round(targetFps * 4));
+  // Adaptive keyframe interval: prevents giant I-frame thermal spikes on iPads/mobile
+  const keyframeInterval = calculateKeyframeInterval(width, height, targetFps);
 
   const seekVideoTo = (targetSec: number): Promise<void> => {
     return new Promise((resolve) => {
@@ -447,14 +489,14 @@ export async function exportVideoWebCodecs({
       };
       video.addEventListener("seeked", onSeeked, { once: true });
       video.currentTime = targetSec;
-      // Fallback timer in case seek event is delayed
+      // Safety timeout for video seek operations on mobile/iPad to prevent duplicate frame capture
       setTimeout(() => {
         if (!resolved) {
           resolved = true;
           video.removeEventListener("seeked", onSeeked);
           resolve();
         }
-      }, 100);
+      }, SEEK_TIMEOUT_MS);
     });
   };
 
@@ -476,11 +518,22 @@ export async function exportVideoWebCodecs({
         throw encoderError;
       }
 
+      // Thermal & GPU Backpressure Guard for iPads / Mobile:
+      // Throttles feed when VideoEncoder queue exceeds 4 items to prevent memory ballooning and GPU thermal stalls
+      let backpressureRetries = 0;
+      while (videoEncoder.encodeQueueSize > 4 && backpressureRetries < BACKPRESSURE_MAX_RETRIES) {
+        if (signal?.aborted) break;
+        if (encoderError) throw encoderError;
+        backpressureRetries++;
+        await new Promise((r) => setTimeout(r, BACKPRESSURE_POLL_MS));
+      }
+
       const currentSec = Math.min(seg.endSec, seg.startSec + f * frameDurationSec);
       await seekVideoTo(currentSec);
 
       let videoFrame: VideoFrame;
       const frameDurationUs = Math.round(frameDurationSec * 1_000_000);
+      const outputTimestampUs = Math.round(frameIndex * frameDurationSec * 1_000_000);
 
       if (isOriginalResolution) {
         // Direct VideoFrame extraction from HTMLVideoElement preserves native YUV & avoids RGBA canvas artifacts
@@ -501,7 +554,6 @@ export async function exportVideoWebCodecs({
       videoEncoder.encode(videoFrame, { keyFrame: isKeyFrame });
       videoFrame.close();
 
-      outputTimestampUs += frameDurationUs;
       frameIndex++;
 
       // Compute progress & speed stats
@@ -529,9 +581,9 @@ export async function exportVideoWebCodecs({
         });
       }
 
-      // Allow microtask drain so encoder pipeline doesn't block UI thread
-      if (frameIndex % 15 === 0) {
-        await new Promise((r) => setTimeout(r, 0));
+      // Allow microtask drain and iPad GPU power-gating every 4 frames
+      if (frameIndex % 4 === 0) {
+        await new Promise((r) => setTimeout(r, MICROTASK_YIELD_MS));
       }
     }
   }
@@ -594,6 +646,7 @@ export async function exportVideoWebCodecs({
     format: "mp4",
     width,
     height,
+    fps: targetFps,
     hasAudio: actualHasAudio,
     audioCodec: audioCodecLabel,
   };

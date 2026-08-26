@@ -4,6 +4,7 @@ import {
   Download,
   Film,
   Flame,
+  Gauge,
   HardDrive,
   HelpCircle,
   Link2,
@@ -40,8 +41,13 @@ import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/
 import { useMediaStore } from "@/features/media/store";
 import { cn } from "@/lib/utils";
 import {
+  DEFAULT_SOURCE_FPS,
+  EXPORT_FPS_PRESETS,
   EXPORT_QUALITY_PRESETS,
   calculateExportResolution,
+  calculateTargetBitrateMbps,
+  resolveExportFps,
+  type ExportFpsPreset,
   type ExportProgress,
   type ExportQuality,
   type ExportResolutionPreset,
@@ -54,7 +60,8 @@ interface TrimControlsProps {
   durationSec: number;
   onSeek: (time: number) => void;
   disabled?: boolean;
-  videoDims?: { w: number; h: number } | null;
+  videoDims?: { w: number; h: number; fps?: number } | null;
+  sourceFps?: number;
 }
 
 export function TrimControls({
@@ -63,6 +70,7 @@ export function TrimControls({
   onSeek,
   disabled = false,
   videoDims,
+  sourceFps,
 }: TrimControlsProps) {
   const video = useMediaStore((s) => s.video);
   const trimMode = useMediaStore((s) => s.trimMode);
@@ -87,18 +95,25 @@ export function TrimControls({
 
   const hasRange = trimStart !== null || trimEnd !== null;
 
-  // Source video dimensions
+  // Source video dimensions and detected frame rate
   const sourceWidth = videoDims?.w || 1920;
   const sourceHeight = videoDims?.h || 1080;
+  const detectedSourceFps = sourceFps || videoDims?.fps || DEFAULT_SOURCE_FPS;
   const sourceAspect = sourceWidth / sourceHeight;
 
-  // Real-time computed target export resolution
+  // Real-time computed target export resolution & frame rate
   const targetResolution = calculateExportResolution(
     sourceWidth,
     sourceHeight,
     exportConfig.resolution || "original",
     exportConfig.customWidth,
     exportConfig.customHeight,
+  );
+
+  const targetFps = resolveExportFps(
+    exportConfig.fpsPreset,
+    exportConfig.customFps,
+    detectedSourceFps,
   );
 
   const sourcePixelCount = sourceWidth * sourceHeight;
@@ -159,6 +174,7 @@ export function TrimControls({
     sourceDurationSec: durationSec,
     sourceWidth,
     sourceHeight,
+    sourceFps: detectedSourceFps,
     trimMode,
     trimStart,
     trimEnd,
@@ -226,32 +242,24 @@ export function TrimControls({
     abortControllerRef.current = new AbortController();
 
     try {
-      const rawSourceBitrateMbps =
-        sourceMeta.sourceBitrateBps > 0
-          ? Number((sourceMeta.sourceBitrateBps / 1_000_000).toFixed(2))
-          : 0;
+      const effectiveFps = resolveExportFps(
+        exportConfig.fpsPreset,
+        exportConfig.customFps,
+        detectedSourceFps,
+      );
 
-      let activeBitrateMbps: number;
-      if (exportConfig.quality === "original") {
-        if (rawSourceBitrateMbps > 0) {
-          const targetVideoMbps = exportConfig.keepAudio
-            ? Math.max(0.2, rawSourceBitrateMbps - 0.192)
-            : rawSourceBitrateMbps;
-          activeBitrateMbps = Number(targetVideoMbps.toFixed(2));
-        } else {
-          activeBitrateMbps = exportConfig.bitrateMbps || 8;
-        }
-      } else if (exportConfig.quality === "custom") {
-        activeBitrateMbps = exportConfig.bitrateMbps;
-      } else {
-        // Preset: don't unintentionally upscale bitrate beyond source
-        const presetMbps = exportConfig.bitrateMbps;
-        if (rawSourceBitrateMbps > 0 && presetMbps > rawSourceBitrateMbps) {
-          activeBitrateMbps = rawSourceBitrateMbps;
-        } else {
-          activeBitrateMbps = presetMbps;
-        }
-      }
+      const activeBitrateMbps = calculateTargetBitrateMbps({
+        quality: exportConfig.quality,
+        configuredBitrateMbps: exportConfig.bitrateMbps,
+        sourceBitrateBps: sourceMeta.sourceBitrateBps,
+        targetWidth: targetResolution.width,
+        targetHeight: targetResolution.height,
+        targetFps: effectiveFps,
+        sourceWidth,
+        sourceHeight,
+        sourceFps: detectedSourceFps,
+        keepAudio: exportConfig.keepAudio,
+      });
 
       const result = await exportVideoWebCodecs({
         sourceUrl: video.objectUrl,
@@ -259,6 +267,7 @@ export function TrimControls({
         segments: retainedSegments,
         config: {
           ...exportConfig,
+          fps: effectiveFps,
           bitrateMbps: activeBitrateMbps,
         },
         onProgress: (prog) => {
@@ -270,7 +279,7 @@ export function TrimControls({
       setExportResult(result);
       setIsExporting(false);
       toast.success(
-        `Export complete! ${result.width}×${result.height} (${result.speedMultiplier}× hardware speed)`,
+        `Export complete! ${result.width}×${result.height} @ ${result.fps}fps (${result.speedMultiplier}× hardware speed)`,
       );
     } catch (err) {
       setIsExporting(false);
@@ -650,8 +659,8 @@ export function TrimControls({
       {/* DECK 2: HARDWARE WEBCODECS EXPORT DECK */}
       <DeckExpander
         id="deck-webcodecs-export"
-        title="Deck-1 // Hardware WebCodecs Export Deck"
-        subtitle="Resolution selector, hardware WebCodecs encoder, bitrate profile & container export"
+        title="Deck-2 // Hardware WebCodecs Export Deck"
+        subtitle="Resolution selector, frame rate cadence, hardware WebCodecs encoder, bitrate profile & container export"
         icon={<Cpu className="size-3.5 text-signal" />}
         badge={
           exportResult ? (
@@ -665,7 +674,7 @@ export function TrimControls({
           ) : (
             <div className="flex items-center gap-1">
               <span className="rounded-xs bg-success/20 px-1 py-0.2 font-mono text-[8px] font-bold text-success border border-success/30 uppercase">
-                {targetResolution.width} × {targetResolution.height}
+                {targetResolution.width} × {targetResolution.height} · {targetFps} FPS
               </span>
             </div>
           )
@@ -673,13 +682,13 @@ export function TrimControls({
         disabled={disabled}
       >
         <div className="space-y-2.5">
-          {/* Resolution, Quality Preset & Codec Controls */}
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+          {/* Resolution, Frame Rate, Quality Preset, Codec & Audio Controls */}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
             {/* Output Resolution Selector */}
             <div className="space-y-1">
               <div className="flex items-center justify-between">
                 <Label className="text-[10px] flex items-center gap-1">
-                  <Monitor className="size-3 text-signal" /> Output Resolution
+                  <Monitor className="size-3 text-signal" /> Resolution
                 </Label>
                 <span className="font-mono text-[9px] text-muted-foreground">
                   {targetResolution.width}×{targetResolution.height}
@@ -729,6 +738,45 @@ export function TrimControls({
                   <SelectItem value="custom" className="text-xs font-mono font-bold text-signal">
                     Custom W × H...
                   </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Frame Rate (FPS) Selector */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] flex items-center gap-1">
+                  <Gauge className="size-3 text-signal" /> Frame Rate (FPS)
+                </Label>
+                <span className="font-mono text-[9px] text-muted-foreground">
+                  {targetFps} fps
+                </span>
+              </div>
+              <Select
+                value={exportConfig.fpsPreset || "original"}
+                onValueChange={(v: ExportFpsPreset) => {
+                  const resolved = resolveExportFps(v, exportConfig.customFps, detectedSourceFps);
+                  setExportConfig({ fpsPreset: v, fps: resolved });
+                }}
+                disabled={disabled || isExporting}
+              >
+                <SelectTrigger className="h-7 text-xs font-mono">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(EXPORT_FPS_PRESETS) as ExportFpsPreset[]).map((key) => (
+                    <SelectItem
+                      key={key}
+                      value={key}
+                      className={cn(
+                        "text-xs font-mono",
+                        key === "original" && "font-bold text-foreground",
+                        key === "custom" && "font-bold text-signal",
+                      )}
+                    >
+                      {EXPORT_FPS_PRESETS[key].label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -841,7 +889,7 @@ export function TrimControls({
                   ) : (
                     <VolumeX className="size-3.5 text-destructive" />
                   )}
-                  {exportConfig.keepAudio ? "Include Sound Track" : "Mute (No Sound Track)"}
+                  {exportConfig.keepAudio ? "Include Sound" : "Mute Sound"}
                 </span>
                 <span className="text-[9px] font-mono font-bold uppercase">
                   {exportConfig.keepAudio ? "🔊 ON" : "🔇 OFF"}
@@ -849,6 +897,67 @@ export function TrimControls({
               </Button>
             </div>
           </div>
+
+          {/* Custom Frame Rate (FPS) Slider & Input if Custom FPS is selected */}
+          {exportConfig.fpsPreset === "custom" ? (
+            <div className="space-y-2 rounded-[var(--radius-sm)] border border-border bg-card p-2.5 font-mono text-xs">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-bold text-foreground flex items-center gap-1">
+                  <Gauge className="size-3 text-signal" /> Custom Frame Rate Cadence
+                </span>
+                <strong className="text-signal text-xs font-bold">
+                  {exportConfig.customFps ?? targetFps} FPS
+                </strong>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex-1 min-w-[180px]">
+                  <Slider
+                    min={1}
+                    max={120}
+                    step={1}
+                    value={[exportConfig.customFps ?? targetFps]}
+                    onValueChange={([val]) => {
+                      const safeVal = Math.max(1, Math.min(120, val ?? 30));
+                      setExportConfig({ customFps: safeVal, fps: safeVal });
+                    }}
+                  />
+                </div>
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={120}
+                    step={1}
+                    value={exportConfig.customFps ?? targetFps}
+                    onChange={(e) => {
+                      const val = Number.parseInt(e.target.value, 10);
+                      if (Number.isNaN(val) || val <= 0) return;
+                      const safeVal = Math.max(1, Math.min(120, val));
+                      setExportConfig({ customFps: safeVal, fps: safeVal });
+                    }}
+                    className="h-7 w-16 px-1.5 text-center font-mono text-xs font-bold"
+                  />
+                  <span className="text-[10px] text-muted-foreground">fps</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-1 ml-auto">
+                  <span className="text-[9px] text-muted-foreground uppercase font-bold">Presets:</span>
+                  {[60, 50, 30, 24, 15, 12].map((fpsVal) => (
+                    <Button
+                      key={fpsVal}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setExportConfig({ customFps: fpsVal, fps: fpsVal })}
+                      className="h-6 px-1.5 text-[9px]"
+                    >
+                      {fpsVal}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {/* Custom Resolution Dimension Inputs if Custom is selected */}
           {exportConfig.resolution === "custom" ? (
@@ -868,17 +977,18 @@ export function TrimControls({
                   <Label className="text-[10px] text-muted-foreground">W:</Label>
                   <Input
                     type="number"
-                    min={64}
-                    max={7680}
+                    min={32}
+                    max={4096}
                     step={2}
                     value={exportConfig.customWidth ?? targetResolution.width}
                     onChange={(e) => {
                       const val = Number.parseInt(e.target.value, 10);
                       if (Number.isNaN(val) || val <= 0) return;
-                      const evenW = Math.max(2, Math.floor(val / 2) * 2);
+                      const clamped = Math.max(32, Math.min(4096, val));
+                      const evenW = Math.floor(clamped / 2) * 2;
                       const isLocked = exportConfig.lockAspectRatio !== false;
                       if (isLocked) {
-                        const evenH = Math.max(2, Math.floor(Math.round(evenW / sourceAspect) / 2) * 2);
+                        const evenH = Math.max(32, Math.min(4096, Math.floor(Math.round(evenW / sourceAspect) / 2) * 2));
                         setExportConfig({ customWidth: evenW, customHeight: evenH });
                       } else {
                         setExportConfig({ customWidth: evenW });
@@ -920,17 +1030,18 @@ export function TrimControls({
                   <Label className="text-[10px] text-muted-foreground">H:</Label>
                   <Input
                     type="number"
-                    min={64}
-                    max={4320}
+                    min={32}
+                    max={4096}
                     step={2}
                     value={exportConfig.customHeight ?? targetResolution.height}
                     onChange={(e) => {
                       const val = Number.parseInt(e.target.value, 10);
                       if (Number.isNaN(val) || val <= 0) return;
-                      const evenH = Math.max(2, Math.floor(val / 2) * 2);
+                      const clamped = Math.max(32, Math.min(4096, val));
+                      const evenH = Math.floor(clamped / 2) * 2;
                       const isLocked = exportConfig.lockAspectRatio !== false;
                       if (isLocked) {
-                        const evenW = Math.max(2, Math.floor(Math.round(evenH * sourceAspect) / 2) * 2);
+                        const evenW = Math.max(32, Math.min(4096, Math.floor(Math.round(evenH * sourceAspect) / 2) * 2));
                         setExportConfig({ customWidth: evenW, customHeight: evenH });
                       } else {
                         setExportConfig({ customHeight: evenH });
@@ -970,7 +1081,7 @@ export function TrimControls({
           {exportConfig.quality === "custom" ? (
             <div className="space-y-1.5 rounded-[var(--radius-sm)] border border-border bg-card p-2.5 font-mono">
               <div className="flex items-center justify-between text-[11px]">
-                <span className="font-bold text-foreground">Custom Video Bitrate:</span>
+                <span className="font-bold text-foreground">Custom Video Bitrate (Explicit Target):</span>
                 <strong className="text-signal text-xs">
                   {exportConfig.bitrateMbps < 1
                     ? `${Math.round(exportConfig.bitrateMbps * 1000)} kbps`
@@ -1031,13 +1142,14 @@ export function TrimControls({
                   <Monitor className="size-3 text-signal" />
                   <span>⚙️ Export Specs:</span>
                   <strong>{targetResolution.width}×{targetResolution.height} px</strong>
+                  <span>@ {targetFps} fps</span>
                   <span>({exportConfig.resolution === "original" ? "100%" : pixelPercentChange > 0 ? `+${pixelPercentChange}%` : `${pixelPercentChange}%`})</span>
                 </span>
                 <span>
                   Bitrate:{" "}
                   <strong className="text-foreground">
                     {exportConfig.quality === "original"
-                      ? `${videoEstimation.targetVideoBitrateFormatted} (Source Match)`
+                      ? `${videoEstimation.targetVideoBitrateFormatted} (Perceptual Match)`
                       : exportConfig.bitrateMbps < 1
                         ? `${Math.round(exportConfig.bitrateMbps * 1000)} kbps`
                         : `${exportConfig.bitrateMbps.toFixed(1)} Mbps`}
@@ -1128,7 +1240,7 @@ export function TrimControls({
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <span>
                     Export {trimMode === "trim" ? "Trimmed" : "Cut"} Video (
-                    {targetResolution.width}×{targetResolution.height} · {formatTime(outputDurationSec)})
+                    {targetResolution.width}×{targetResolution.height} @ {targetFps}fps · {formatTime(outputDurationSec)})
                   </span>
                   <span
                     className={cn(
@@ -1233,6 +1345,9 @@ export function TrimControls({
                   Resolution: <strong className="text-foreground">{exportResult.width} × {exportResult.height} px</strong>
                 </span>
                 <span>
+                  Cadence: <strong className="text-foreground">{exportResult.fps || targetFps} fps</strong>
+                </span>
+                <span>
                   Sound:{" "}
                   <strong className={exportResult.hasAudio ? "text-success font-bold" : "text-muted-foreground font-bold"}>
                     {exportResult.hasAudio ? `🔊 Included (${exportResult.audioCodec || "Audio Track"})` : "🔇 Muted / No Audio"}
@@ -1255,7 +1370,7 @@ export function TrimControls({
                   className="flex-1 gap-2 font-bold shadow-[2px_2px_0px_var(--color-border)]"
                 >
                   <Download className="size-4" />
-                  Download Exported Video ({exportResult.width}×{exportResult.height} · {formatFileSize(exportResult.fileSize)})
+                  Download Exported Video ({exportResult.width}×{exportResult.height} @ {exportResult.fps || targetFps}fps · {formatFileSize(exportResult.fileSize)})
                 </Button>
                 <Button
                   type="button"

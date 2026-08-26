@@ -1,7 +1,13 @@
 import { formatFileSize } from "./format";
 import type { CropPresetId, OutputFormat, SourceImage } from "./types";
 import type { ExportConfig, TrimMode } from "../player/trim-types";
-import { calculateExportResolution } from "../player/trim-types";
+import {
+  AUDIO_BITRATE_BPS,
+  DEFAULT_SOURCE_FPS,
+  calculateExportResolution,
+  calculateTargetBitrateMbps,
+  resolveExportFps,
+} from "../player/trim-types";
 import { resolveCropTarget } from "./crop";
 
 export interface VideoSourceMetadata {
@@ -207,6 +213,7 @@ export function estimateVideoExport({
   sourceDurationSec,
   sourceWidth,
   sourceHeight,
+  sourceFps = DEFAULT_SOURCE_FPS,
   trimMode,
   trimStart,
   trimEnd,
@@ -216,6 +223,7 @@ export function estimateVideoExport({
   sourceDurationSec: number;
   sourceWidth: number;
   sourceHeight: number;
+  sourceFps?: number;
   trimMode: TrimMode;
   trimStart: number | null;
   trimEnd: number | null;
@@ -241,18 +249,33 @@ export function estimateVideoExport({
     exportConfig.customHeight,
   );
 
-  // Bitrates in bps
-  let targetVideoBitrateBps: number;
-  if (exportConfig.quality === "original" && sourceFileSize > 0 && sourceDurationSec > 0) {
-    const rawSourceBitrateBps = Math.round((sourceFileSize * 8) / sourceDurationSec);
-    targetVideoBitrateBps = Math.max(
-      200_000,
-      exportConfig.keepAudio ? rawSourceBitrateBps - 192_000 : rawSourceBitrateBps,
-    );
-  } else {
-    targetVideoBitrateBps = Math.round((exportConfig.bitrateMbps || 8) * 1_000_000);
-  }
-  const targetAudioBitrateBps = exportConfig.keepAudio ? 192_000 : 0; // 192 kbps AAC/Opus
+  // Bitrates in bps calculated with perceptual resolution & framerate scaling
+  const safeSourceW = sourceWidth || 1920;
+  const safeSourceH = sourceHeight || 1080;
+  const safeSourceFps = Math.max(1, sourceFps || DEFAULT_SOURCE_FPS);
+  const rawSourceBitrateBps =
+    sourceDurationSec > 0 && sourceFileSize > 0 ? (sourceFileSize * 8) / sourceDurationSec : 0;
+  const effectiveFps = resolveExportFps(
+    exportConfig.fpsPreset,
+    exportConfig.customFps,
+    exportConfig.fps || safeSourceFps,
+  );
+
+  const targetBitrateMbps = calculateTargetBitrateMbps({
+    quality: exportConfig.quality,
+    configuredBitrateMbps: exportConfig.bitrateMbps,
+    sourceBitrateBps: rawSourceBitrateBps,
+    targetWidth: targetRes.width,
+    targetHeight: targetRes.height,
+    targetFps: effectiveFps,
+    sourceWidth: safeSourceW,
+    sourceHeight: safeSourceH,
+    sourceFps: safeSourceFps,
+    keepAudio: exportConfig.keepAudio,
+  });
+
+  const targetVideoBitrateBps = Math.round(targetBitrateMbps * 1_000_000);
+  const targetAudioBitrateBps = exportConfig.keepAudio ? AUDIO_BITRATE_BPS : 0;
   const targetTotalBitrateBps = targetVideoBitrateBps + targetAudioBitrateBps;
 
   // Payloads in bytes

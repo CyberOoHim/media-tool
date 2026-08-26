@@ -43,9 +43,11 @@ export const DEFAULT_EXPORT_CONFIG: ExportConfig = {
   customWidth: 1920,
   customHeight: 1080,
   lockAspectRatio: true,
+  fpsPreset: "original",
+  customFps: 30,
+  fps: 30,
   format: "mp4",
   bitrateMbps: 8,
-  fps: 30,
   keepAudio: true,
 };
 
