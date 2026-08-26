@@ -293,9 +293,9 @@ export function timeStretchAudioBufferWSOLA(
   const maxSearchDelta = Math.floor(synthHop / 2);
 
   // Hanning window
-  const window = new Float32Array(windowSize);
+  const hannWindow = new Float32Array(windowSize);
   for (let i = 0; i < windowSize; i++) {
-    window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (windowSize - 1)));
+    hannWindow[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (windowSize - 1)));
   }
 
   const allocLength = outLength + windowSize * 2;
@@ -346,12 +346,12 @@ export function timeStretchAudioBufferWSOLA(
       const dstCh = outChannels[c]!;
       for (let i = 0; i < windowSize; i++) {
         const sample = srcCh[actualInputPos + i] ?? 0;
-        dstCh[outPos + i] += sample * window[i]!;
+        dstCh[outPos + i] += sample * hannWindow[i]!;
       }
     }
 
     for (let i = 0; i < windowSize; i++) {
-      windowSum[outPos + i] += window[i]!;
+      windowSum[outPos + i] += hannWindow[i]!;
     }
 
     outPos += synthHop;
@@ -369,15 +369,10 @@ export function timeStretchAudioBufferWSOLA(
     }
   }
 
-  const AudioCtxClass =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const tempCtx = new AudioCtxClass();
-  const outBuffer = tempCtx.createBuffer(numChannels, outLength, sampleRate);
+  const outBuffer = getAudioContext().createBuffer(numChannels, outLength, sampleRate);
   for (let c = 0; c < numChannels; c++) {
-    outBuffer.copyToChannel(outChannels[c]!.subarray(0, outLength), c);
+    outBuffer.getChannelData(c).set(outChannels[c]!.subarray(0, outLength));
   }
-  void tempCtx.close();
 
   return outBuffer;
 }
@@ -398,11 +393,7 @@ export function varispeedAudioBuffer(
   const inLength = source.length;
   const outLength = Math.max(1, Math.round(inLength / rate));
 
-  const AudioCtxClass =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const tempCtx = new AudioCtxClass();
-  const outBuffer = tempCtx.createBuffer(numChannels, outLength, sampleRate);
+  const outBuffer = getAudioContext().createBuffer(numChannels, outLength, sampleRate);
 
   for (let c = 0; c < numChannels; c++) {
     const inData = source.getChannelData(c);
@@ -427,10 +418,9 @@ export function varispeedAudioBuffer(
       outData[i] = a0 * frac * frac * frac + a1 * frac * frac + a2 * frac + a3;
     }
 
-    outBuffer.copyToChannel(outData, c);
+    outBuffer.getChannelData(c).set(outData);
   }
 
-  void tempCtx.close();
   return outBuffer;
 }
 
@@ -475,12 +465,7 @@ export function sliceSegmentsFromBuffer(
     totalSamples = 1;
   }
 
-  const AudioCtxClass =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const tempCtx = new AudioCtxClass();
-  const sliced = tempCtx.createBuffer(numChannels, totalSamples, sampleRate);
-  void tempCtx.close();
+  const sliced = getAudioContext().createBuffer(numChannels, totalSamples, sampleRate);
 
   for (let c = 0; c < numChannels; c++) {
     const srcCh = source.getChannelData(c);
