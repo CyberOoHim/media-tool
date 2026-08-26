@@ -759,12 +759,24 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         onPointerLeave={handlePointerLeave}
         onWheel={handleWheel}
       >
+        {/* Retro Bezel Overlay Frame Corners (matching video player) */}
+        <div className="pointer-events-none absolute inset-2 z-10 flex flex-col justify-between text-white/20 font-mono text-[10px]">
+          <div className="flex items-center justify-between">
+            <span>⌜ AUDIO-DSP</span>
+            <span className="text-[9px] uppercase tracking-widest text-signal/40">MASTER BUS</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>⌞ 48kHz / 32-BIT</span>
+            <span>OSC-REC ⌟</span>
+          </div>
+        </div>
+
         <canvas ref={canvasRef} className="h-full w-full block" />
 
         {/* Ultra-efficient GPU-composited CSS Playhead (0 canvas redraws during playback!) */}
         <div
           ref={playheadElRef}
-          className="pointer-events-none absolute top-0 bottom-0 left-0 w-[2px] will-change-transform z-10"
+          className="pointer-events-none absolute top-0 bottom-0 left-0 w-[2px] will-change-transform z-15"
           style={{
             backgroundColor: currentTheme.playhead,
             transform: "translateX(0px)",
@@ -782,11 +794,11 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         {hoverTime !== null && hoverX !== null && (
           <>
             <div
-              className="pointer-events-none absolute top-0 bottom-0 left-0 w-[1px] border-r border-dashed border-white/40 z-10"
+              className="pointer-events-none absolute top-0 bottom-0 left-0 w-[1px] border-r border-dashed border-white/40 z-15"
               style={{ transform: `translateX(${hoverX}px)` }}
             />
             <div
-              className="pointer-events-none absolute top-2 -translate-x-1/2 rounded border border-border bg-card/90 px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground shadow-[2px_2px_0px_var(--color-border)] backdrop-blur-xs z-20"
+              className="pointer-events-none absolute top-2 -translate-x-1/2 rounded border border-border bg-card/90 px-1.5 py-0.5 font-mono text-[9px] font-bold text-foreground shadow-[2px_2px_0px_var(--color-border)] backdrop-blur-xs z-25"
               style={{ left: `${Math.max(30, Math.min((containerRef.current?.clientWidth || 300) - 30, hoverX))}px` }}
             >
               {formatTimePrecise(hoverTime)}
@@ -795,7 +807,7 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         )}
 
         {/* Overlay Badges for Mode / Audio Info */}
-        <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 font-mono text-[8px] text-zinc-400 z-10">
+        <div className="pointer-events-none absolute bottom-1.5 left-2 flex items-center gap-1.5 font-mono text-[8px] text-zinc-400 z-15">
           <span className="rounded-xs bg-black/70 px-1 py-0.2 border border-zinc-800 uppercase tracking-wider">
             {audio?.sampleRate ? `${(audio.sampleRate / 1000).toFixed(1)} kHz` : "48.0 kHz"}
           </span>
@@ -819,7 +831,7 @@ export function AudioWaveform({ analyserNode, onSeek, className }: AudioWaveform
         {/* Timecode HUD bottom-right */}
         <div
           ref={timecodeHudRef}
-          className="pointer-events-none absolute bottom-1.5 right-2 rounded-xs bg-black/80 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-400 border border-zinc-800 z-10"
+          className="pointer-events-none absolute bottom-1.5 right-2 rounded-xs bg-black/80 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-400 border border-zinc-800 z-15"
         >
           {formatTimePrecise(0)} / {formatTimePrecise(duration)}
         </div>
