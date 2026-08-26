@@ -5,6 +5,7 @@ import {
   Music,
   Pause,
   Play,
+  Repeat,
   Rewind,
   Scissors,
   SkipBack,
@@ -131,7 +132,9 @@ export function AudioDeck() {
         }
         if (cur >= e) {
           if (loopRange) {
+            // When preview ON and loop ON: play only within selected period and loop only within it
             el.currentTime = s;
+            if (el.paused) void el.play();
           } else {
             el.pause();
             el.currentTime = s;
@@ -148,26 +151,26 @@ export function AudioDeck() {
           return;
         }
       }
-    } else if (loopRange) {
-      // Loop Range when not in preview trim mode (only if valid in/out points set)
-      if (trimStart !== null && trimEnd !== null && trimEnd > trimStart) {
-        if (cur >= trimEnd || cur < trimStart - 0.05) {
-          el.currentTime = trimStart;
-        }
-      }
     }
   }, [loopRange, previewTrimMode, setCurrentTime, setPlaying, trimEnd, trimMode, trimStart]);
 
   const handleEnded = useCallback(() => {
     const el = audioRef.current;
-    if (loopRange && el) {
-      const s = trimStart !== null ? trimStart : 0;
-      el.currentTime = s;
-      void el.play();
+    if (!el) return;
+    if (loopRange) {
+      if (previewTrimMode && trimMode === "trim") {
+        const s = trimStart !== null ? trimStart : 0;
+        el.currentTime = s;
+        void el.play();
+      } else {
+        // When preview toggle OFF and loop ON: loop entire audio
+        el.currentTime = 0;
+        void el.play();
+      }
     } else {
       setPlaying(false);
     }
-  }, [loopRange, setPlaying, trimStart]);
+  }, [loopRange, previewTrimMode, setPlaying, trimMode, trimStart]);
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
@@ -175,8 +178,12 @@ export function AudioDeck() {
 
     if (el.paused) {
       // If at end of track or trim boundary, restart from start
-      if (trimEnd !== null && previewTrimMode && el.currentTime >= trimEnd) {
-        el.currentTime = trimStart !== null ? trimStart : 0;
+      if (previewTrimMode && trimMode === "trim") {
+        const s = trimStart !== null ? trimStart : 0;
+        const e = trimEnd !== null ? trimEnd : el.duration;
+        if (el.currentTime >= e - 0.05 || el.currentTime < s - 0.05) {
+          el.currentTime = s;
+        }
       } else if (el.duration > 0 && el.currentTime >= el.duration - 0.05) {
         el.currentTime = 0;
       }
@@ -193,7 +200,7 @@ export function AudioDeck() {
       el.pause();
       setPlaying(false);
     }
-  }, [audio?.objectUrl, previewTrimMode, setPlaying, trimEnd, trimStart]);
+  }, [audio?.objectUrl, previewTrimMode, setPlaying, trimEnd, trimMode, trimStart]);
 
   const seekTo = useCallback(
     (timeSec: number) => {
@@ -395,11 +402,25 @@ export function AudioDeck() {
           break;
         }
         case "l":
-        case "L":
+        case "L": {
           e.preventDefault();
+          const next = !loopRange;
           toggleLoopRange();
-          toast(`Loop range ${!loopRange ? "Enabled" : "Disabled"}`);
+          if (previewTrimMode) {
+            toast(`Loop: ${next ? "ON (Selected Period)" : "OFF"}`);
+          } else {
+            toast(`Loop: ${next ? "ON (Entire Track)" : "OFF"}`);
+          }
           break;
+        }
+        case "p":
+        case "P": {
+          e.preventDefault();
+          const next = !previewTrimMode;
+          setPreviewTrimMode(next);
+          toast(next ? "Preview Mode: ON (Selected Period)" : "Preview Mode: OFF (Full Audio)");
+          break;
+        }
         case "[":
           e.preventDefault();
           if (e.shiftKey) {
@@ -442,6 +463,8 @@ export function AudioDeck() {
     addCuePoint,
     loopRange,
     toggleLoopRange,
+    previewTrimMode,
+    setPreviewTrimMode,
     rate,
     applyRate,
   ]);
@@ -765,14 +788,39 @@ export function AudioDeck() {
                 size="sm"
                 disabled={!audio || (trimStart === null && trimEnd === null)}
                 onClick={() => {
-                  setPreviewTrimMode(!previewTrimMode);
-                  toast(previewTrimMode ? "Preview Mode: OFF" : "Preview Mode: ON (Live Skipping)");
+                  const next = !previewTrimMode;
+                  setPreviewTrimMode(next);
+                  toast(next ? "Preview Mode: ON (Selected Period)" : "Preview Mode: OFF (Full Audio)");
                 }}
                 className="h-8 px-2 text-[11px] font-bold touch-manipulation active:scale-95"
                 title="Live Preview Playback (P)"
               >
                 <Eye className="size-3.5 mr-1" />
                 Preview
+              </Button>
+
+              <Button
+                variant={loopRange ? "signal" : "outline"}
+                size="sm"
+                disabled={!audio}
+                onClick={() => {
+                  const next = !loopRange;
+                  toggleLoopRange();
+                  if (previewTrimMode) {
+                    toast(`Loop: ${next ? "ON (Selected Period)" : "OFF"}`);
+                  } else {
+                    toast(`Loop: ${next ? "ON (Entire Track)" : "OFF"}`);
+                  }
+                }}
+                className="h-8 px-2 text-[11px] font-bold touch-manipulation active:scale-95"
+                title={
+                  previewTrimMode
+                    ? "Loop (L) - Looping within selected preview period"
+                    : "Loop (L) - Looping entire audio track"
+                }
+              >
+                <Repeat className="size-3.5 mr-1" />
+                Loop
               </Button>
             </div>
           </div>

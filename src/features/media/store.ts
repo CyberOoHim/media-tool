@@ -68,6 +68,7 @@ type MediaState = {
   trimEnd: number | null;
   includeScreenshotFrame: boolean; // default: false (not included)
   previewTrimMode: boolean;
+  loop: boolean;
   exportConfig: ExportConfig;
 
   loadVideo: (file: File) => void;
@@ -102,6 +103,8 @@ type MediaState = {
   setTrimRange: (start: number | null, end: number | null) => void;
   setIncludeScreenshotFrame: (include: boolean) => void;
   setPreviewTrimMode: (preview: boolean) => void;
+  setLoop: (loop: boolean) => void;
+  toggleLoop: () => void;
   setExportConfig: (partial: Partial<ExportConfig>) => void;
   applyScreenshotToTrim: (
     captureId: string,
@@ -134,6 +137,7 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   trimEnd: null,
   includeScreenshotFrame: false, // Default: false (not included)
   previewTrimMode: false,
+  loop: false,
   exportConfig: { ...DEFAULT_EXPORT_CONFIG },
 
   loadVideo: (file) => {
@@ -453,6 +457,10 @@ export const useMediaStore = create<MediaState>((set, get) => ({
   setIncludeScreenshotFrame: (include) => set({ includeScreenshotFrame: include }),
 
   setPreviewTrimMode: (preview) => set({ previewTrimMode: preview }),
+
+  setLoop: (loop) => set({ loop }),
+
+  toggleLoop: () => set((state) => ({ loop: !state.loop })),
 
   setExportConfig: (partial) =>
     set((state) => ({ exportConfig: { ...state.exportConfig, ...partial } })),

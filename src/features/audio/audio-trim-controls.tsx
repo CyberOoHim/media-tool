@@ -169,17 +169,27 @@ export function AudioTrimControls() {
 
           {/* Quick options: Loop range & Preview mode */}
           <div className="mt-1 flex items-center justify-between border-t border-border/40 pt-1.5 text-[10px]">
-            <label className="flex items-center gap-1.5 cursor-pointer">
+            <label
+              className="flex items-center gap-1.5 cursor-pointer select-none"
+              title={
+                previewTrimMode
+                  ? "Loop Playback (L) - Looping within selected preview period"
+                  : "Loop Playback (L) - Looping entire audio track"
+              }
+            >
               <Switch checked={loopRange} onCheckedChange={setLoopRange} className="scale-75" />
-              <span>Loop Range (L)</span>
+              <span>Loop Playback (L)</span>
             </label>
-            <label className="flex items-center gap-1.5 cursor-pointer">
+            <label
+              className="flex items-center gap-1.5 cursor-pointer select-none"
+              title="Preview Mode (P) - Plays only within selected period"
+            >
               <Switch
                 checked={previewTrimMode}
                 onCheckedChange={setPreviewTrimMode}
                 className="scale-75"
               />
-              <span>Preview Mode Only</span>
+              <span>Preview Mode (P)</span>
             </label>
           </div>
         </div>

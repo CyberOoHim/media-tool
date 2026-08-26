@@ -10,6 +10,7 @@ import {
   Music,
   Pause,
   Play,
+  Repeat,
   Rewind,
   RotateCcw,
   Scissors,
@@ -72,9 +73,11 @@ export function VideoPlayer() {
   const trimStart = useMediaStore((s) => s.trimStart);
   const trimEnd = useMediaStore((s) => s.trimEnd);
   const previewTrimMode = useMediaStore((s) => s.previewTrimMode);
+  const loop = useMediaStore((s) => s.loop);
   const setTrimStart = useMediaStore((s) => s.setTrimStart);
   const setTrimEnd = useMediaStore((s) => s.setTrimEnd);
   const setPreviewTrimMode = useMediaStore((s) => s.setPreviewTrimMode);
+  const toggleLoop = useMediaStore((s) => s.toggleLoop);
   const clearTrimRange = useMediaStore((s) => s.clearTrimRange);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -169,11 +172,20 @@ export function VideoPlayer() {
     const el = videoRef.current;
     if (!el?.src) return;
     if (el.paused) {
+      if (previewTrimMode && trimMode === "trim") {
+        const s = trimStart ?? 0;
+        const e = trimEnd ?? el.duration;
+        if (el.currentTime >= e - 0.05 || el.currentTime < s - 0.05) {
+          el.currentTime = s;
+        }
+      } else if (Number.isFinite(el.duration) && el.duration > 0 && el.currentTime >= el.duration - 0.05) {
+        el.currentTime = 0;
+      }
       void el.play();
     } else {
       el.pause();
     }
-  }, []);
+  }, [previewTrimMode, trimEnd, trimMode, trimStart]);
 
   const seekBy = useCallback((delta: number) => {
     const el = videoRef.current;
@@ -456,6 +468,17 @@ export function VideoPlayer() {
           clearTrimRange();
           toast("Cleared Cut/Trim Points");
           break;
+        case "l": {
+          event.preventDefault();
+          const next = !loop;
+          toggleLoop();
+          if (previewTrimMode) {
+            toast(`Loop: ${next ? "ON (Selected Period)" : "OFF"}`);
+          } else {
+            toast(`Loop: ${next ? "ON (Entire Video)" : "OFF"}`);
+          }
+          break;
+        }
         case "p":
           event.preventDefault();
           setPreviewTrimMode(!previewTrimMode);
@@ -525,12 +548,14 @@ export function VideoPlayer() {
     clearTrimRange,
     copyFrame,
     fullscreen,
+    loop,
     previewTrimMode,
     rate,
     seekBy,
     setPreviewTrimMode,
     setTrimEnd,
     setTrimStart,
+    toggleLoop,
     toggleMute,
     togglePlay,
     videoSession,
@@ -959,7 +984,26 @@ export function VideoPlayer() {
               className="max-h-[50vh] w-full bg-black object-contain lg:max-h-[56vh]"
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
+              onEnded={() => {
+                const el = videoRef.current;
+                if (!el) {
+                  setPlaying(false);
+                  return;
+                }
+                if (loop) {
+                  if (previewTrimMode && trimMode === "trim") {
+                    const s = trimStart ?? 0;
+                    el.currentTime = s;
+                    void el.play();
+                  } else {
+                    // When preview toggle OFF and loop ON: loop entire video
+                    el.currentTime = 0;
+                    void el.play();
+                  }
+                } else {
+                  setPlaying(false);
+                }
+              }}
               onClick={togglePlay}
               onLoadedMetadata={(event) => {
                 setDuration(event.currentTarget.duration);
@@ -992,15 +1036,21 @@ export function VideoPlayer() {
                       return;
                     }
                     if (time >= e) {
-                      el.pause();
-                      el.currentTime = s;
-                      setPlaying(false);
-                      toast("Trim preview reached OUT point");
+                      if (loop) {
+                        // When preview ON and loop ON: play only within selected period and loop only within it
+                        el.currentTime = s;
+                        if (el.paused) void el.play();
+                      } else {
+                        el.pause();
+                        el.currentTime = s;
+                        setPlaying(false);
+                        toast("Trim preview reached OUT point");
+                      }
                       return;
                     }
                   } else {
                     // Cut: Remove [s, e] - automatically skip ahead
-                    if (time >= s && time < e) {
+                    if (trimStart !== null && trimEnd !== null && time >= s && time < e) {
                       el.currentTime = e;
                       toast("Skipped cut period");
                       return;
@@ -1357,6 +1407,27 @@ export function VideoPlayer() {
               >
                 <Eye className="size-3.5 mr-1" />
                 Preview
+              </Button>
+            </Hint>
+
+            <Hint label={loop ? (previewTrimMode ? "Loop: ON (Selected Period) (L)" : "Loop: ON (Entire Video) (L)") : "Loop (L)"}>
+              <Button
+                variant={loop ? "signal" : "outline"}
+                size="sm"
+                disabled={disabled}
+                onClick={() => {
+                  const next = !loop;
+                  toggleLoop();
+                  if (previewTrimMode) {
+                    toast(`Loop: ${next ? "ON (Selected Period)" : "OFF"}`);
+                  } else {
+                    toast(`Loop: ${next ? "ON (Entire Video)" : "OFF"}`);
+                  }
+                }}
+                className="h-9 px-2.5 text-[11px] font-bold touch-manipulation active:scale-95"
+              >
+                <Repeat className="size-3.5 mr-1" />
+                Loop
               </Button>
             </Hint>
           </div>

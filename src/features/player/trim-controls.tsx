@@ -34,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Hint } from "@/components/ui/tooltip";
 import { downloadBlob } from "@/features/media/download";
 import { estimateVideoExport, extractVideoSourceMetadata } from "@/features/media/estimation";
@@ -77,6 +78,8 @@ export function TrimControls({
   const trimStart = useMediaStore((s) => s.trimStart);
   const trimEnd = useMediaStore((s) => s.trimEnd);
   const includeScreenshotFrame = useMediaStore((s) => s.includeScreenshotFrame);
+  const previewTrimMode = useMediaStore((s) => s.previewTrimMode);
+  const loop = useMediaStore((s) => s.loop);
   const exportConfig = useMediaStore((s) => s.exportConfig);
 
   const setTrimMode = useMediaStore((s) => s.setTrimMode);
@@ -84,6 +87,8 @@ export function TrimControls({
   const setTrimEnd = useMediaStore((s) => s.setTrimEnd);
   const setTrimRange = useMediaStore((s) => s.setTrimRange);
   const setIncludeScreenshotFrame = useMediaStore((s) => s.setIncludeScreenshotFrame);
+  const setPreviewTrimMode = useMediaStore((s) => s.setPreviewTrimMode);
+  const setLoop = useMediaStore((s) => s.setLoop);
   const setExportConfig = useMediaStore((s) => s.setExportConfig);
   const clearTrimRange = useMediaStore((s) => s.clearTrimRange);
 
@@ -593,6 +598,25 @@ export function TrimControls({
             <span className="font-mono text-[9px] font-bold text-muted-foreground uppercase">
               Default: Not Included
             </span>
+          </div>
+
+          {/* Loop & Preview Mode Switches */}
+          <div className="flex flex-wrap items-center justify-between border-t border-border/40 pt-2 gap-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-foreground">
+              <Switch checked={loop} onCheckedChange={setLoop} className="scale-75" />
+              <span>Loop Playback (L)</span>
+              <Hint label={previewTrimMode ? "Loop only within selected preview period" : "Loop entire video"}>
+                <HelpCircle className="size-3 text-muted-foreground" />
+              </Hint>
+            </label>
+
+            <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] font-semibold text-foreground">
+              <Switch checked={previewTrimMode} onCheckedChange={setPreviewTrimMode} className="scale-75" />
+              <span>Preview Mode (P)</span>
+              <Hint label="When active, playback plays only the selected period (or skips cut range)">
+                <HelpCircle className="size-3 text-muted-foreground" />
+              </Hint>
+            </label>
           </div>
         </div>
 

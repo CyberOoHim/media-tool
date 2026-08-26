@@ -83,6 +83,7 @@ export interface AudioState {
   rate: number;
   pitchPreserve: boolean;
   pan: number;
+  loop: boolean;
   loopRange: boolean;
   isSeeking: boolean;
   error: string | null;
@@ -134,6 +135,8 @@ export interface AudioState {
   setRate: (rate: number) => void;
   setPitchPreserve: (preserve: boolean) => void;
   setPan: (pan: number) => void;
+  setLoop: (loop: boolean) => void;
+  toggleLoop: () => void;
   setLoopRange: (loop: boolean) => void;
   toggleLoopRange: () => void;
   setTrimMode: (mode: AudioTrimMode) => void;
@@ -190,6 +193,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   rate: 1.0,
   pitchPreserve: true,
   pan: 0,
+  loop: false,
   loopRange: false,
   isSeeking: false,
   error: null,
@@ -340,8 +344,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   setRate: (rate) => set({ rate }),
   setPitchPreserve: (pitchPreserve) => set({ pitchPreserve }),
   setPan: (pan) => set({ pan }),
-  setLoopRange: (loopRange) => set({ loopRange }),
-  toggleLoopRange: () => set((s) => ({ loopRange: !s.loopRange })),
+  setLoop: (loop) => set({ loop, loopRange: loop }),
+  toggleLoop: () => set((s) => ({ loop: !s.loop, loopRange: !s.loop })),
+  setLoopRange: (loopRange) => set({ loop: loopRange, loopRange }),
+  toggleLoopRange: () => set((s) => ({ loop: !s.loopRange, loopRange: !s.loopRange })),
 
   setTrimMode: (trimMode) => set({ trimMode }),
   setTrimStart: (sec) => {
