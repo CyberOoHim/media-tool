@@ -64,6 +64,9 @@ export interface AudioExportConfig {
   applyEq: boolean;
   applyDynamics: boolean;
   exportRangeOnly: boolean; // if true, uses [trimStart, trimEnd]
+  applyPlaybackSpeed: boolean; // if true, exports at current deck speed & pitch mode
+  playbackRate?: number;
+  pitchPreserve?: boolean;
 }
 
 export type AudioVisualizerMode = "waveform" | "spectrum" | "oscilloscope" | "stereo-split";

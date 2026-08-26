@@ -66,6 +66,7 @@ export const DEFAULT_AUDIO_EXPORT_CONFIG: AudioExportConfig = {
   applyEq: true,
   applyDynamics: true,
   exportRangeOnly: false,
+  applyPlaybackSpeed: true,
 };
 
 export interface AudioState {
@@ -428,6 +429,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   exportAudio: async (overrideOptions) => {
     const {
       audio,
+      rate,
+      pitchPreserve,
       trimMode,
       trimStart,
       trimEnd,
@@ -449,6 +452,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     }
 
     const cfg = { ...exportConfig, ...overrideOptions };
+    const effectiveRate = cfg.applyPlaybackSpeed !== false ? (cfg.playbackRate ?? rate) : 1.0;
+    const effectivePitchPreserve =
+      cfg.applyPlaybackSpeed !== false ? (cfg.pitchPreserve ?? pitchPreserve) : true;
+
     set({ isExporting: true, exportProgress: 5 });
 
     try {
@@ -471,6 +478,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         monoSum,
         targetChannels: cfg.channels,
         targetSampleRate: cfg.sampleRate,
+        playbackRate: effectiveRate,
+        pitchPreserve: effectivePitchPreserve,
       });
 
       set({ exportProgress: 50 });
@@ -481,7 +490,11 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
       const baseName = fileStem(audio.fileName);
       const modeSuffix = trimStart !== null || trimEnd !== null ? `_${trimMode}` : "_master";
-      const outFileName = `${baseName}${modeSuffix}.${encoded.extension}`;
+      const speedSuffix =
+        Math.abs(effectiveRate - 1.0) >= 0.01
+          ? `_${effectiveRate}x${effectivePitchPreserve ? "" : "_tape"}`
+          : "";
+      const outFileName = `${baseName}${modeSuffix}${speedSuffix}.${encoded.extension}`;
 
       downloadBlob(encoded.blob, outFileName);
       set({ isExporting: false, exportProgress: 100 });
@@ -495,6 +508,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   exportCueSlice: async (cue, nextCue) => {
     const {
       audio,
+      rate,
+      pitchPreserve,
       eq,
       eqBypass,
       lowCut,
@@ -511,6 +526,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     const startSec = cue.timestampSec;
     const endSec = nextCue ? nextCue.timestampSec : audio.duration;
     if (endSec <= startSec) return;
+
+    const effectiveRate = exportConfig.applyPlaybackSpeed !== false ? rate : 1.0;
+    const effectivePitchPreserve =
+      exportConfig.applyPlaybackSpeed !== false ? pitchPreserve : true;
 
     set({ isExporting: true, exportProgress: 10 });
     try {
@@ -533,6 +552,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         monoSum,
         targetChannels: exportConfig.channels,
         targetSampleRate: exportConfig.sampleRate,
+        playbackRate: effectiveRate,
+        pitchPreserve: effectivePitchPreserve,
       });
 
       set({ exportProgress: 50 });
@@ -542,7 +563,11 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       });
 
       const safeLabel = cue.label.replace(/[^a-zA-Z0-9_-]/g, "_");
-      const outFileName = `${fileStem(audio.fileName)}_${safeLabel}.${encoded.extension}`;
+      const speedSuffix =
+        Math.abs(effectiveRate - 1.0) >= 0.01
+          ? `_${effectiveRate}x${effectivePitchPreserve ? "" : "_tape"}`
+          : "";
+      const outFileName = `${fileStem(audio.fileName)}_${safeLabel}${speedSuffix}.${encoded.extension}`;
 
       downloadBlob(encoded.blob, outFileName);
       set({ isExporting: false, exportProgress: 100 });

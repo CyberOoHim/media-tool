@@ -256,7 +256,251 @@ export function audioBufferToWavBlob(
 }
 
 /**
- * Offline Audio Processor for High-Speed Rendering of Cut/Trim/EQ/Dynamics/Normalizations
+ * Waveform Similarity Overlap-Add (WSOLA) for high-fidelity time-stretching with pitch preservation
+ */
+export function timeStretchAudioBufferWSOLA(
+  source: AudioBuffer,
+  rate: number,
+): AudioBuffer {
+  if (Math.abs(rate - 1.0) < 0.001 || rate <= 0) {
+    return source;
+  }
+
+  const numChannels = source.numberOfChannels;
+  const sampleRate = source.sampleRate;
+  const inLength = source.length;
+  const outLength = Math.max(1, Math.round(inLength / rate));
+
+  const inChannels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) {
+    inChannels.push(source.getChannelData(c));
+  }
+
+  // Mono mix for fast, phase-aligned cross-correlation search
+  const mono = new Float32Array(inLength);
+  if (numChannels === 1) {
+    mono.set(inChannels[0]!);
+  } else {
+    const ch0 = inChannels[0]!;
+    const ch1 = inChannels[1]!;
+    for (let i = 0; i < inLength; i++) {
+      mono[i] = (ch0[i]! + ch1[i]!) * 0.5;
+    }
+  }
+
+  const windowSize = sampleRate >= 44100 ? 1024 : 512;
+  const synthHop = Math.floor(windowSize / 2);
+  const maxSearchDelta = Math.floor(synthHop / 2);
+
+  // Hanning window
+  const window = new Float32Array(windowSize);
+  for (let i = 0; i < windowSize; i++) {
+    window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (windowSize - 1)));
+  }
+
+  const allocLength = outLength + windowSize * 2;
+  const outChannels: Float32Array[] = [];
+  for (let c = 0; c < numChannels; c++) {
+    outChannels.push(new Float32Array(allocLength));
+  }
+  const windowSum = new Float32Array(allocLength);
+
+  let prevInputPos = 0;
+  let outPos = 0;
+  let synthIndex = 0;
+
+  while (outPos < outLength) {
+    const idealInputPos = Math.round(synthIndex * synthHop * rate);
+
+    let bestOffset = 0;
+    if (synthIndex === 0) {
+      bestOffset = 0;
+    } else {
+      const naturalInputPos = prevInputPos + synthHop;
+      const searchStart = Math.max(0, idealInputPos - maxSearchDelta);
+      const searchEnd = Math.min(inLength - windowSize, idealInputPos + maxSearchDelta);
+
+      let minDiff = Infinity;
+      const compLen = Math.min(windowSize, Math.max(0, inLength - naturalInputPos));
+
+      for (let cand = searchStart; cand <= searchEnd; cand += 2) {
+        let diff = 0;
+        for (let j = 0; j < compLen; j += 4) {
+          const s1 = mono[cand + j] ?? 0;
+          const s2 = mono[naturalInputPos + j] ?? 0;
+          const d = s1 - s2;
+          diff += d * d;
+        }
+        if (diff < minDiff) {
+          minDiff = diff;
+          bestOffset = cand - idealInputPos;
+        }
+      }
+    }
+
+    const actualInputPos = Math.max(0, Math.min(inLength - windowSize, idealInputPos + bestOffset));
+    prevInputPos = actualInputPos;
+
+    for (let c = 0; c < numChannels; c++) {
+      const srcCh = inChannels[c]!;
+      const dstCh = outChannels[c]!;
+      for (let i = 0; i < windowSize; i++) {
+        const sample = srcCh[actualInputPos + i] ?? 0;
+        dstCh[outPos + i] += sample * window[i]!;
+      }
+    }
+
+    for (let i = 0; i < windowSize; i++) {
+      windowSum[outPos + i] += window[i]!;
+    }
+
+    outPos += synthHop;
+    synthIndex++;
+  }
+
+  // Normalize by window overlap envelope to ensure flat, unity frequency response
+  for (let i = 0; i < outLength; i++) {
+    const sum = windowSum[i]!;
+    if (sum > 1e-4) {
+      const invSum = 1 / sum;
+      for (let c = 0; c < numChannels; c++) {
+        outChannels[c]![i] *= invSum;
+      }
+    }
+  }
+
+  const AudioCtxClass =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const tempCtx = new AudioCtxClass();
+  const outBuffer = tempCtx.createBuffer(numChannels, outLength, sampleRate);
+  for (let c = 0; c < numChannels; c++) {
+    outBuffer.copyToChannel(outChannels[c]!.subarray(0, outLength), c);
+  }
+  void tempCtx.close();
+
+  return outBuffer;
+}
+
+/**
+ * Varispeed / Tape Resampling: changes speed AND proportionally shifts pitch (e.g. analog tape / vinyl)
+ */
+export function varispeedAudioBuffer(
+  source: AudioBuffer,
+  rate: number,
+): AudioBuffer {
+  if (Math.abs(rate - 1.0) < 0.001 || rate <= 0) {
+    return source;
+  }
+
+  const numChannels = source.numberOfChannels;
+  const sampleRate = source.sampleRate;
+  const inLength = source.length;
+  const outLength = Math.max(1, Math.round(inLength / rate));
+
+  const AudioCtxClass =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const tempCtx = new AudioCtxClass();
+  const outBuffer = tempCtx.createBuffer(numChannels, outLength, sampleRate);
+
+  for (let c = 0; c < numChannels; c++) {
+    const inData = source.getChannelData(c);
+    const outData = new Float32Array(outLength);
+
+    for (let i = 0; i < outLength; i++) {
+      const srcPos = i * rate;
+      const idx0 = Math.floor(srcPos);
+      const frac = srcPos - idx0;
+
+      // 4-point cubic Hermite interpolation for smooth, anti-aliased resampling
+      const p0 = inData[Math.max(0, idx0 - 1)] ?? 0;
+      const p1 = inData[Math.min(inLength - 1, idx0)] ?? 0;
+      const p2 = inData[Math.min(inLength - 1, idx0 + 1)] ?? 0;
+      const p3 = inData[Math.min(inLength - 1, idx0 + 2)] ?? 0;
+
+      const a0 = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+      const a1 = p0 - 2.5 * p1 + 2 * p2 - 0.5 * p3;
+      const a2 = -0.5 * p0 + 0.5 * p2;
+      const a3 = p1;
+
+      outData[i] = a0 * frac * frac * frac + a1 * frac * frac + a2 * frac + a3;
+    }
+
+    outBuffer.copyToChannel(outData, c);
+  }
+
+  void tempCtx.close();
+  return outBuffer;
+}
+
+/**
+ * Applies speed and pitch preservation to an AudioBuffer
+ */
+export function applySpeedAndPitchToBuffer(
+  buffer: AudioBuffer,
+  rate: number,
+  pitchPreserve = true,
+): AudioBuffer {
+  if (Math.abs(rate - 1.0) < 0.001 || rate <= 0) {
+    return buffer;
+  }
+  if (pitchPreserve) {
+    return timeStretchAudioBufferWSOLA(buffer, rate);
+  } else {
+    return varispeedAudioBuffer(buffer, rate);
+  }
+}
+
+/**
+ * Slices contiguous or spliced segments from an AudioBuffer
+ */
+export function sliceSegmentsFromBuffer(
+  source: AudioBuffer,
+  segments: { sourceStart: number; sourceEnd: number }[],
+): AudioBuffer {
+  const sampleRate = source.sampleRate;
+  const numChannels = source.numberOfChannels;
+
+  let totalSamples = 0;
+  for (const seg of segments) {
+    const sIdx = Math.max(0, Math.min(source.length, Math.floor(seg.sourceStart * sampleRate)));
+    const eIdx = Math.max(0, Math.min(source.length, Math.floor(seg.sourceEnd * sampleRate)));
+    if (eIdx > sIdx) {
+      totalSamples += eIdx - sIdx;
+    }
+  }
+
+  if (totalSamples <= 0) {
+    totalSamples = 1;
+  }
+
+  const AudioCtxClass =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const tempCtx = new AudioCtxClass();
+  const sliced = tempCtx.createBuffer(numChannels, totalSamples, sampleRate);
+  void tempCtx.close();
+
+  for (let c = 0; c < numChannels; c++) {
+    const srcCh = source.getChannelData(c);
+    const dstCh = sliced.getChannelData(c);
+    let dstOffset = 0;
+    for (const seg of segments) {
+      const sIdx = Math.max(0, Math.min(source.length, Math.floor(seg.sourceStart * sampleRate)));
+      const eIdx = Math.max(0, Math.min(source.length, Math.floor(seg.sourceEnd * sampleRate)));
+      if (eIdx > sIdx) {
+        dstCh.set(srcCh.subarray(sIdx, eIdx), dstOffset);
+        dstOffset += eIdx - sIdx;
+      }
+    }
+  }
+
+  return sliced;
+}
+
+/**
+ * Offline Audio Processor for High-Speed Rendering of Cut/Trim/EQ/Dynamics/Normalizations/Speed & Pitch
  */
 export async function renderProcessedAudioOffline(options: {
   sourceBuffer: AudioBuffer;
@@ -277,6 +521,8 @@ export async function renderProcessedAudioOffline(options: {
   monoSum?: boolean;
   targetChannels?: 1 | 2;
   targetSampleRate?: number;
+  playbackRate?: number;
+  pitchPreserve?: boolean;
 }): Promise<AudioBuffer> {
   const {
     sourceBuffer,
@@ -297,6 +543,8 @@ export async function renderProcessedAudioOffline(options: {
     monoSum = false,
     targetChannels = sourceBuffer.numberOfChannels as 1 | 2,
     targetSampleRate = sourceBuffer.sampleRate,
+    playbackRate = 1.0,
+    pitchPreserve = true,
   } = options;
 
   const totalDuration = sourceBuffer.duration;
@@ -353,7 +601,19 @@ export async function renderProcessedAudioOffline(options: {
     }
   }
 
-  const renderedDuration = segments.reduce((sum, s) => sum + s.outputDuration, 0);
+  // Slice audio buffer from source
+  let intermediateBuffer = sliceSegmentsFromBuffer(sourceBuffer, segments);
+
+  // Apply speed and pitch transformation if rate is modified
+  if (Math.abs(playbackRate - 1.0) >= 0.001 && playbackRate > 0) {
+    intermediateBuffer = applySpeedAndPitchToBuffer(
+      intermediateBuffer,
+      playbackRate,
+      pitchPreserve,
+    );
+  }
+
+  const renderedDuration = intermediateBuffer.duration;
   const totalLength = Math.max(1, Math.round(renderedDuration * targetSampleRate));
 
   // 2. Setup OfflineAudioContext
@@ -427,7 +687,9 @@ export async function renderProcessedAudioOffline(options: {
 
   // Master Gain & Fades Node
   const gainNode = offlineCtx.createGain();
-  const baseGain = (gainBoost || 1.0) * (applyDynamics && dynamics.enabled ? Math.pow(10, dynamics.makeupGain / 20) : 1.0);
+  const baseGain =
+    (gainBoost || 1.0) *
+    (applyDynamics && dynamics.enabled ? Math.pow(10, dynamics.makeupGain / 20) : 1.0);
   gainNode.gain.setValueAtTime(baseGain, 0);
 
   // Apply Fade-In
@@ -458,15 +720,11 @@ export async function renderProcessedAudioOffline(options: {
 
   const entryNode = chain[0] ?? dest;
 
-  // Schedule AudioBufferSourceNodes for each segment
-  let currentDestTime = 0;
-  for (const seg of segments) {
-    const src = offlineCtx.createBufferSource();
-    src.buffer = sourceBuffer;
-    src.connect(entryNode);
-    src.start(currentDestTime, seg.sourceStart, seg.outputDuration);
-    currentDestTime += seg.outputDuration;
-  }
+  // Feed intermediate sliced and speed/pitch adjusted buffer
+  const src = offlineCtx.createBufferSource();
+  src.buffer = intermediateBuffer;
+  src.connect(entryNode);
+  src.start(0);
 
   // Render audio offline
   const renderedBuffer = await offlineCtx.startRendering();

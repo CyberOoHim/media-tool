@@ -24,6 +24,8 @@ import type { AudioBitDepth, AudioExportFormat, AudioNormalizeMode } from "./typ
 export function AudioTrimControls() {
   const audio = useAudioStore((s) => s.audio);
   const duration = useAudioStore((s) => s.duration);
+  const rate = useAudioStore((s) => s.rate);
+  const pitchPreserve = useAudioStore((s) => s.pitchPreserve);
   const trimMode = useAudioStore((s) => s.trimMode);
   const trimStart = useAudioStore((s) => s.trimStart);
   const trimEnd = useAudioStore((s) => s.trimEnd);
@@ -46,8 +48,12 @@ export function AudioTrimControls() {
   const startVal = trimStart ?? 0;
   const endVal = trimEnd ?? duration;
   const rangeDuration = Math.max(0, endVal - startVal);
-  const effectiveOutputDuration =
+  const effectiveBaseDuration =
     trimMode === "trim" ? (hasRange ? rangeDuration : duration) : Math.max(0, duration - rangeDuration);
+  const effectiveOutputDuration =
+    exportConfig.applyPlaybackSpeed !== false && rate > 0
+      ? effectiveBaseDuration / rate
+      : effectiveBaseDuration;
 
   const markIn = () => {
     setTrimStart(useAudioStore.getState().currentTime);
@@ -342,8 +348,44 @@ export function AudioTrimControls() {
           </div>
         </div>
 
+        {/* 5. Deck Playback Speed & Pitch Preservation in Export */}
+        <div className="mt-3 rounded-xs border border-border/80 bg-secondary/40 p-2 text-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <Switch
+                checked={exportConfig.applyPlaybackSpeed !== false}
+                onCheckedChange={(checked) => setExportConfig({ applyPlaybackSpeed: checked })}
+                className="scale-75"
+              />
+              <span className="font-bold text-foreground">
+                Apply Deck Speed ({rate}×) & Pitch Mode in Output
+              </span>
+            </label>
+
+            <div className="flex items-center gap-1.5 font-mono text-[10px]">
+              <span className="text-muted-foreground">Pitch Mode:</span>
+              <span
+                className={cn(
+                  "rounded-xs px-1.5 py-0.5 font-bold uppercase",
+                  pitchPreserve
+                    ? "bg-signal/20 text-signal border border-signal/40"
+                    : "bg-amber-500/20 text-amber-300 border border-amber-500/40",
+                )}
+              >
+                {pitchPreserve ? "Lock Tone (Pitch Preserved)" : "Tape (Varispeed)"}
+              </span>
+            </div>
+          </div>
+
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {exportConfig.applyPlaybackSpeed !== false
+              ? `Exported audio will play at ${rate}× speed (${effectiveOutputDuration.toFixed(2)}s duration) with ${pitchPreserve ? "WSOLA phase-locked pitch preservation (Lock Tone)" : "proportional analog tape pitch-shifting (Tape mode)"}.`
+              : "Exported audio will render at native 1.0× speed without deck tempo modifications."}
+          </p>
+        </div>
+
         {/* Export Action Button & Progress */}
-        <div className="mt-4 flex flex-col gap-2">
+        <div className="mt-3 flex flex-col gap-2">
           {isExporting && (
             <div className="flex flex-col gap-1">
               <div className="flex justify-between text-[10px]">

@@ -1,5 +1,6 @@
 import {
   Bookmark,
+  Eye,
   FastForward,
   Music,
   Pause,
@@ -91,6 +92,7 @@ export function AudioDeck() {
   const setTrimStart = useAudioStore((s) => s.setTrimStart);
   const setTrimEnd = useAudioStore((s) => s.setTrimEnd);
   const clearTrimRange = useAudioStore((s) => s.clearTrimRange);
+  const setPreviewTrimMode = useAudioStore((s) => s.setPreviewTrimMode);
   const addCuePoint = useAudioStore((s) => s.addCuePoint);
 
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -721,6 +723,58 @@ export function AudioDeck() {
             >
               <SkipForward className="size-3.5" />
             </Button>
+
+            {/* Quick In / Out / Preview Buttons directly on Transport */}
+            <div className="ml-1 flex items-center gap-1 border-l border-border/50 pl-1.5">
+              <Button
+                variant={trimStart !== null ? "primary" : "outline"}
+                size="sm"
+                disabled={!audio}
+                onClick={() => {
+                  const cur = useAudioStore.getState().currentTime;
+                  setTrimStart(cur);
+                  toast.success(`Marked IN @ ${formatTimePrecise(cur)}`);
+                }}
+                className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+                title="Mark IN Point (I)"
+              >
+                [ IN
+              </Button>
+
+              <Button
+                variant={trimEnd !== null ? "destructive" : "outline"}
+                size="sm"
+                disabled={!audio}
+                onClick={() => {
+                  const cur = useAudioStore.getState().currentTime;
+                  if (trimStart !== null && cur <= trimStart) {
+                    toast.error("OUT point must be after IN point");
+                    return;
+                  }
+                  setTrimEnd(cur);
+                  toast.success(`Marked OUT @ ${formatTimePrecise(cur)}`);
+                }}
+                className="h-8 px-2 font-mono text-[11px] font-bold touch-manipulation active:scale-95"
+                title="Mark OUT Point (O)"
+              >
+                OUT ]
+              </Button>
+
+              <Button
+                variant={previewTrimMode ? "signal" : "outline"}
+                size="sm"
+                disabled={!audio || (trimStart === null && trimEnd === null)}
+                onClick={() => {
+                  setPreviewTrimMode(!previewTrimMode);
+                  toast(previewTrimMode ? "Preview Mode: OFF" : "Preview Mode: ON (Live Skipping)");
+                }}
+                className="h-8 px-2 text-[11px] font-bold touch-manipulation active:scale-95"
+                title="Live Preview Playback (P)"
+              >
+                <Eye className="size-3.5 mr-1" />
+                Preview
+              </Button>
+            </div>
           </div>
 
           {/* Playback Rate & Pitch Preserves */}
