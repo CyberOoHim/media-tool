@@ -25,8 +25,13 @@ import { Slider } from "@/components/ui/slider";
 import { formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
 import { JogDial } from "@/features/player/jog-dial";
-import { nextRate, nudgeRate } from "@/features/player/rates";
-import { SpeedControl } from "@/features/player/speed-control";
+import {
+  COMMON_PLAYBACK_RATES,
+  clampRate,
+  nextRate,
+  nudgeRate,
+} from "@/features/player/rates";
+import { SpeedControl, SpeedDropdown } from "@/features/player/speed-control";
 import { cn } from "@/lib/utils";
 import { AudioCueControls } from "./audio-cue-controls";
 import { AudioDspControls } from "./audio-dsp-controls";
@@ -385,28 +390,62 @@ export function AudioDeck() {
   const applyRate = useCallback(
     (next: number) => {
       const el = audioRef.current;
-      setRate(next);
+      const clamped = clampRate(next);
+      setRate(clamped);
       if (el) {
-        el.playbackRate = next;
-        const mediaEl = el as HTMLMediaElement & { preservesPitch?: boolean };
-        if (mediaEl.preservesPitch !== undefined) {
-          mediaEl.preservesPitch = pitchPreserve;
+        el.playbackRate = clamped;
+        if ("preservesPitch" in el) {
+          (el as unknown as { preservesPitch: boolean }).preservesPitch = pitchPreserve;
+        }
+        if ("webkitPreservesPitch" in el) {
+          (el as unknown as { webkitPreservesPitch: boolean }).webkitPreservesPitch = pitchPreserve;
+        }
+        if ("mozPreservesPitch" in el) {
+          (el as unknown as { mozPreservesPitch: boolean }).mozPreservesPitch = pitchPreserve;
         }
       }
     },
     [pitchPreserve, setRate],
   );
 
-  // Sync pitch preservation
-  useEffect(() => {
-    const el = audioRef.current;
-    if (el) {
-      const mediaEl = el as HTMLMediaElement & { preservesPitch?: boolean };
-      if (mediaEl.preservesPitch !== undefined) {
-        mediaEl.preservesPitch = pitchPreserve;
+  const togglePitchPreserve = useCallback(
+    (val: boolean) => {
+      setPitchPreserve(val);
+      const el = audioRef.current;
+      if (el) {
+        if ("preservesPitch" in el) {
+          (el as unknown as { preservesPitch: boolean }).preservesPitch = val;
+        }
+        if ("webkitPreservesPitch" in el) {
+          (el as unknown as { webkitPreservesPitch: boolean }).webkitPreservesPitch = val;
+        }
+        if ("mozPreservesPitch" in el) {
+          (el as unknown as { mozPreservesPitch: boolean }).mozPreservesPitch = val;
+        }
       }
+    },
+    [setPitchPreserve],
+  );
+
+  // Sync rate and pitch preservation properties with audio element
+  const syncMediaProperties = useCallback(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.playbackRate = rate;
+    if ("preservesPitch" in el) {
+      (el as unknown as { preservesPitch: boolean }).preservesPitch = pitchPreserve;
     }
-  }, [pitchPreserve]);
+    if ("webkitPreservesPitch" in el) {
+      (el as unknown as { webkitPreservesPitch: boolean }).webkitPreservesPitch = pitchPreserve;
+    }
+    if ("mozPreservesPitch" in el) {
+      (el as unknown as { mozPreservesPitch: boolean }).mozPreservesPitch = pitchPreserve;
+    }
+  }, [pitchPreserve, rate]);
+
+  useEffect(() => {
+    syncMediaProperties();
+  }, [syncMediaProperties, audio?.objectUrl]);
 
   // Jump to Typed Timecode
   const gotoTypedTime = () => {
@@ -625,8 +664,12 @@ export function AudioDeck() {
         ref={audioRef}
         src={audio?.objectUrl}
         onTimeUpdate={handleTimeUpdate}
+        onLoadedMetadata={syncMediaProperties}
         onEnded={() => setPlaying(false)}
-        onPlay={() => setPlaying(true)}
+        onPlay={() => {
+          syncMediaProperties();
+          setPlaying(true);
+        }}
         onPause={() => setPlaying(false)}
         preload="auto"
       />
@@ -825,7 +868,7 @@ export function AudioDeck() {
               onRateChange={applyRate}
               disabled={!audio}
               pitchPreserve={pitchPreserve}
-              onPitchPreserveChange={setPitchPreserve}
+              onPitchPreserveChange={togglePitchPreserve}
             />
           </div>
 
@@ -861,6 +904,62 @@ export function AudioDeck() {
             <span className="font-mono text-[10px] text-muted-foreground min-w-[28px]">
               {muted ? "0%" : `${Math.round(volume * 100)}%`}
             </span>
+          </div>
+        </div>
+
+        {/* Row 3: Deck Speed Suite (Dropdown, Presets Chips, Popover & Pitch Keep Switch) */}
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/40 pt-2.5">
+          {/* Speed Dropdown, Fine Speed Popover & Common Presets Chips */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Deck Speed:
+            </span>
+            <SpeedDropdown
+              rate={rate}
+              onRateChange={applyRate}
+              disabled={!audio}
+              className="w-28 sm:w-32"
+            />
+            <SpeedControl
+              rate={rate}
+              onRateChange={applyRate}
+              disabled={!audio}
+              pitchPreserve={pitchPreserve}
+              onPitchPreserveChange={togglePitchPreserve}
+            />
+            <div className="flex flex-wrap items-center gap-1">
+              {COMMON_PLAYBACK_RATES.map((r) => (
+                <Button
+                  key={r}
+                  size="sm"
+                  variant={Math.abs(rate - r) < 0.001 ? "signal" : "outline"}
+                  disabled={!audio}
+                  onClick={() => applyRate(r)}
+                  className="h-8 min-w-9 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"
+                >
+                  {r}×
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          {/* Direct Pitch Keep Toggle Switch */}
+          <div className="flex items-center gap-2 rounded-xs border border-border/60 bg-secondary/40 px-2.5 py-1">
+            <Volume2 className="size-3 text-muted-foreground" />
+            <span className="text-[10px] font-bold text-foreground">
+              Preserve Audio Pitch:
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant={pitchPreserve ? "signal" : "outline"}
+              disabled={!audio}
+              onClick={() => togglePitchPreserve(!pitchPreserve)}
+              className="h-6 px-2 text-[10px] font-bold font-mono"
+              title="Preserve vocal pitch during variable speed playback (prevents chipmunk / deep voice effect)"
+            >
+              {pitchPreserve ? "ON (Lock Tone)" : "OFF (Tape)"}
+            </Button>
           </div>
         </div>
       </div>
