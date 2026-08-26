@@ -54,7 +54,6 @@ import { JogDial } from "./jog-dial";
 import {
   COMMON_PLAYBACK_RATES,
   FRAME_STEP,
-  PLAYBACK_RATES,
   clampRate,
   nextRate,
   nudgeRate,

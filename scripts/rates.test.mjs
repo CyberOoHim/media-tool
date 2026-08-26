@@ -22,6 +22,8 @@ test("Playback rate constants and bounds", () => {
   assert.ok(PLAYBACK_RATES.includes(1.0), "Default 1.0 must be in presets");
   assert.ok(PLAYBACK_RATES.includes(0.1), "0.1 slow-mo must be in presets");
   assert.ok(PLAYBACK_RATES.includes(4.0), "4.0 high-speed must be in presets");
+  assert.ok(COMMON_PLAYBACK_RATES.length >= 6, "Common playback rates defined");
+  assert.ok(SPEED_PRESETS.length >= 10, "Speed presets defined");
 
   // Sorted in ascending order
   const sorted = [...PLAYBACK_RATES].sort((a, b) => a - b);

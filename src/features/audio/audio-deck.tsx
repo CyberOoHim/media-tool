@@ -319,7 +319,7 @@ export function AudioDeck() {
   ]);
 
   // Audio Playhead Time & Loop bounds synchronization
-  const handleTimeUpdate = () => {
+  const handleTimeUpdate = useCallback(() => {
     const el = audioRef.current;
     if (!el) return;
     const cur = el.currentTime;
@@ -337,7 +337,7 @@ export function AudioDeck() {
         el.currentTime = trimStart;
       }
     }
-  };
+  }, [loopRange, previewTrimMode, setCurrentTime, trimEnd, trimMode, trimStart]);
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
@@ -393,6 +393,7 @@ export function AudioDeck() {
       const clamped = clampRate(next);
       setRate(clamped);
       if (el) {
+        el.defaultPlaybackRate = clamped;
         el.playbackRate = clamped;
         if ("preservesPitch" in el) {
           (el as unknown as { preservesPitch: boolean }).preservesPitch = pitchPreserve;
@@ -422,6 +423,10 @@ export function AudioDeck() {
         if ("mozPreservesPitch" in el) {
           (el as unknown as { mozPreservesPitch: boolean }).mozPreservesPitch = val;
         }
+        // Force the browser audio decoder to apply the pitch preservation mode immediately
+        const current = el.playbackRate;
+        el.defaultPlaybackRate = current;
+        el.playbackRate = current;
       }
     },
     [setPitchPreserve],
@@ -431,6 +436,7 @@ export function AudioDeck() {
   const syncMediaProperties = useCallback(() => {
     const el = audioRef.current;
     if (!el) return;
+    el.defaultPlaybackRate = rate;
     el.playbackRate = rate;
     if ("preservesPitch" in el) {
       (el as unknown as { preservesPitch: boolean }).preservesPitch = pitchPreserve;
@@ -446,6 +452,25 @@ export function AudioDeck() {
   useEffect(() => {
     syncMediaProperties();
   }, [syncMediaProperties, audio?.objectUrl]);
+
+  // High-frequency 60fps playhead timecode sync while playing
+  useEffect(() => {
+    let animId: number;
+    const syncTime = () => {
+      const el = audioRef.current;
+      if (el && !el.paused) {
+        handleTimeUpdate();
+        animId = requestAnimationFrame(syncTime);
+      }
+    };
+
+    if (playing) {
+      animId = requestAnimationFrame(syncTime);
+    }
+    return () => {
+      if (animId) cancelAnimationFrame(animId);
+    };
+  }, [handleTimeUpdate, playing]);
 
   // Jump to Typed Timecode
   const gotoTypedTime = () => {
@@ -665,6 +690,9 @@ export function AudioDeck() {
         src={audio?.objectUrl}
         onTimeUpdate={handleTimeUpdate}
         onLoadedMetadata={syncMediaProperties}
+        onLoadedData={syncMediaProperties}
+        onCanPlay={syncMediaProperties}
+        onSeeked={syncMediaProperties}
         onEnded={() => setPlaying(false)}
         onPlay={() => {
           syncMediaProperties();
