@@ -1,5 +1,9 @@
 import { ArrayBufferTarget, Muxer as Mp4Muxer } from "mp4-muxer";
-import { extractMp4AudioToAdts } from "./mp4-audio-demuxer";
+import {
+  extractMp4AacTrack,
+  extractMp4AudioToAdts,
+  sliceAacSamples,
+} from "./mp4-audio-demuxer";
 import {
   AUDIO_BITRATE_BPS,
   calculateExportResolution,
@@ -14,6 +18,192 @@ import {
 export interface ExportSegment {
   startSec: number;
   endSec: number;
+}
+
+type MuxAudioPacket = {
+  data: Uint8Array;
+  timestampUs: number;
+  durationUs: number;
+};
+
+function remuxAacPacketsForSegments(
+  arrayBuffer: ArrayBuffer,
+  segments: ExportSegment[],
+): { packets: MuxAudioPacket[]; sampleRate: number; channels: 1 | 2 } | null {
+  const track = extractMp4AacTrack(arrayBuffer);
+  if (!track || track.samples.length === 0) return null;
+  const sliced = sliceAacSamples(track, segments);
+  if (sliced.samples.length === 0) return null;
+  return {
+    packets: sliced.samples.map((sample) => ({
+      data: sample.data,
+      timestampUs: sample.timestampUs,
+      durationUs: sample.durationUs,
+    })),
+    sampleRate: sliced.sampleRate,
+    channels: Math.min(2, Math.max(1, sliced.channels)) as 1 | 2,
+  };
+}
+
+async function decodeAudioBufferForExport(arrayBuffer: ArrayBuffer): Promise<AudioBuffer | null> {
+  const AudioCtxClass =
+    window.AudioContext ||
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const audioCtx = new AudioCtxClass();
+  if (audioCtx.state === "suspended") {
+    try {
+      await audioCtx.resume();
+    } catch {
+      // WebKit may keep the context suspended; decodeAudioData can still succeed.
+    }
+  }
+
+  try {
+    try {
+      return await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+    } catch {
+      const adtsTrack = extractMp4AudioToAdts(arrayBuffer);
+      if (!adtsTrack || adtsTrack.adtsData.length === 0) return null;
+      const adtsCopy = new Uint8Array(adtsTrack.adtsData);
+      return await audioCtx.decodeAudioData(adtsCopy.buffer);
+    }
+  } catch {
+    return null;
+  } finally {
+    void audioCtx.close();
+  }
+}
+
+async function encodeAacPacketsFromAudioBuffer(
+  decodedBuffer: AudioBuffer,
+  segments: ExportSegment[],
+  totalOutputDuration: number,
+  signal?: AbortSignal,
+): Promise<{ packets: MuxAudioPacket[]; sampleRate: number; channels: 1 | 2 } | null> {
+  if (typeof AudioEncoder === "undefined" || typeof AudioData === "undefined") {
+    return null;
+  }
+
+  const channels = Math.min(2, Math.max(1, decodedBuffer.numberOfChannels)) as 1 | 2;
+  const preferredSampleRate = decodedBuffer.sampleRate === 44100 ? 44100 : 48000;
+  const frameSize = 1024;
+
+  let encoderConfig: AudioEncoderConfig | null = null;
+  try {
+    if (typeof AudioEncoder.isConfigSupported === "function") {
+      const probe = await AudioEncoder.isConfigSupported({
+        codec: "mp4a.40.2",
+        numberOfChannels: channels,
+        sampleRate: preferredSampleRate,
+        bitrate: AUDIO_BITRATE_BPS,
+      });
+      if (probe.supported && probe.config) {
+        encoderConfig = {
+          codec: probe.config.codec || "mp4a.40.2",
+          numberOfChannels: probe.config.numberOfChannels || channels,
+          sampleRate: probe.config.sampleRate || preferredSampleRate,
+          bitrate: probe.config.bitrate || AUDIO_BITRATE_BPS,
+        };
+      }
+    } else {
+      encoderConfig = {
+        codec: "mp4a.40.2",
+        numberOfChannels: channels,
+        sampleRate: preferredSampleRate,
+        bitrate: AUDIO_BITRATE_BPS,
+      };
+    }
+  } catch {
+    encoderConfig = null;
+  }
+
+  if (!encoderConfig) return null;
+
+  const sampleRate = encoderConfig.sampleRate;
+  const totalOutputSamples = Math.max(1, Math.round(totalOutputDuration * sampleRate));
+  const offlineCtx = new OfflineAudioContext(channels, totalOutputSamples, sampleRate);
+
+  let currentDestTime = 0;
+  for (const seg of segments) {
+    const segDuration = seg.endSec - seg.startSec;
+    if (segDuration > 0 && seg.startSec < decodedBuffer.duration) {
+      const safeOffset = Math.max(0, Math.min(seg.startSec, decodedBuffer.duration - 0.001));
+      const safeDuration = Math.min(segDuration, Math.max(0, decodedBuffer.duration - safeOffset));
+      if (safeDuration > 0) {
+        const src = offlineCtx.createBufferSource();
+        src.buffer = decodedBuffer;
+        src.connect(offlineCtx.destination);
+        src.start(currentDestTime, safeOffset, safeDuration);
+      }
+    }
+    currentDestTime += segDuration;
+  }
+
+  const slicedAudioBuffer = await offlineCtx.startRendering();
+  const packets: MuxAudioPacket[] = [];
+  const frameDurationUs = Math.round((frameSize / sampleRate) * 1_000_000);
+  let encoderError: Error | null = null;
+
+  const encoder = new AudioEncoder({
+    output: (chunk) => {
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      packets.push({
+        data,
+        timestampUs: chunk.timestamp,
+        durationUs: chunk.duration && chunk.duration > 0 ? chunk.duration : frameDurationUs,
+      });
+    },
+    error: (err) => {
+      encoderError = err instanceof Error ? err : new Error(String(err));
+    },
+  });
+
+  try {
+    encoder.configure(encoderConfig);
+    const planarBuffer = new Float32Array(frameSize * channels);
+    const totalSamples = slicedAudioBuffer.length;
+
+    for (let offset = 0; offset < totalSamples; offset += frameSize) {
+      if (signal?.aborted) break;
+      if (encoderError) throw encoderError;
+
+      while (encoder.encodeQueueSize > 6) {
+        await new Promise((r) => setTimeout(r, 4));
+      }
+
+      const currentBlock = Math.min(frameSize, totalSamples - offset);
+      planarBuffer.fill(0);
+      for (let ch = 0; ch < channels; ch++) {
+        const slice = slicedAudioBuffer.getChannelData(ch).subarray(offset, offset + currentBlock);
+        planarBuffer.set(slice, ch * frameSize);
+      }
+
+      const audioData = new AudioData({
+        format: "f32-planar",
+        sampleRate,
+        numberOfFrames: frameSize,
+        numberOfChannels: channels,
+        timestamp: Math.round((offset / sampleRate) * 1_000_000),
+        data: planarBuffer,
+      });
+      encoder.encode(audioData);
+      audioData.close();
+    }
+
+    await encoder.flush();
+    encoder.close();
+    if (encoderError || packets.length === 0) return null;
+    return { packets, sampleRate, channels };
+  } catch (err) {
+    console.warn("AAC AudioEncoder fallback failed:", err);
+    try {
+      encoder.close();
+    } catch {
+      // Encoder may already be closed.
+    }
+    return null;
+  }
 }
 
 const BACKPRESSURE_POLL_MS = 6; // 6ms polling interval (~1 frame at 165Hz iPad ProMotion)
@@ -144,15 +334,12 @@ export async function exportVideoWebCodecs({
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
 
-  // 3. Audio Extraction & Dynamic Codec Negotiation (AAC -> Opus fallback)
-  let slicedAudioBuffer: AudioBuffer | null = null;
+  // 3. Audio: remux source AAC first (iPad Safari/Chrome have VideoEncoder but often
+  // no AudioEncoder; Opus-in-MP4 is silent on iOS). Re-encode AAC only if remux fails.
   let hasAudioTrack = false;
-  let chosenAudioCodec: "aac" | "opus" | null = null;
-  let chosenCodecString = "mp4a.40.2";
-  let chosenFrameSize = 1024;
   let chosenSampleRate = 48000;
   let targetChannels: 1 | 2 = 2;
-  const audioChunks: Array<{ chunk: EncodedAudioChunk; meta?: EncodedAudioChunkMetadata }> = [];
+  const audioPackets: MuxAudioPacket[] = [];
 
   if (config.keepAudio) {
     try {
@@ -165,217 +352,53 @@ export async function exportVideoWebCodecs({
         fps: 0,
         elapsedSec: 0,
         estimatedRemainingSec: 0,
-        message: "Processing and syncing audio track...",
+        message: "Copying AAC audio track...",
       });
 
       const response = await fetch(sourceUrl);
       const arrayBuffer = await response.arrayBuffer();
-      const AudioCtxClass =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const audioCtx = new AudioCtxClass();
-      if (audioCtx.state === "suspended") {
-        try {
-          await audioCtx.resume();
-        } catch {
-          // Ignore resume error
-        }
-      }
-
-      let decodedBuffer: AudioBuffer | null = null;
-      try {
-        // First attempt: Standard decodeAudioData
-        decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
-      } catch (decodeErr) {
-        console.warn("Direct AudioContext decodeAudioData failed, attempting ADTS demux fallback:", decodeErr);
-        // Fallback for Safari/WebKit: Demux MP4 AAC stream to ADTS and decode that
-        try {
-          const adtsTrack = extractMp4AudioToAdts(arrayBuffer);
-          if (adtsTrack && adtsTrack.adtsData.length > 0) {
-            const adtsArrayBuffer = new Uint8Array(adtsTrack.adtsData).buffer as ArrayBuffer;
-            decodedBuffer = await audioCtx.decodeAudioData(adtsArrayBuffer);
-          }
-        } catch (adtsErr) {
-          console.warn("ADTS audio decode fallback failed:", adtsErr);
-        }
-      } finally {
-        void audioCtx.close();
-      }
-
-      if (decodedBuffer && decodedBuffer.length > 0 && decodedBuffer.numberOfChannels > 0) {
-        targetChannels = Math.min(2, Math.max(1, decodedBuffer.numberOfChannels)) as 1 | 2;
-        const nativeSampleRate = decodedBuffer.sampleRate;
-        const preferredSampleRate = nativeSampleRate === 44100 ? 44100 : 48000;
-
-        // Check WebCodecs AudioEncoder availability and probe codec support
-        if (typeof AudioEncoder !== "undefined" && typeof AudioData !== "undefined") {
-          // 1. Probe AAC support (1024 frames/chunk) across multiple profile strings
-          let aacSupported = false;
-          const aacCandidates = ["mp4a.40.2", "mp4a.40.02", "mp4a.67"];
-          for (const cand of aacCandidates) {
-            if (aacSupported) break;
-            try {
-              if (typeof AudioEncoder.isConfigSupported === "function") {
-                const aacCheck = await AudioEncoder.isConfigSupported({
-                  codec: cand,
-                  numberOfChannels: targetChannels,
-                  sampleRate: preferredSampleRate,
-                  bitrate: AUDIO_BITRATE_BPS,
-                });
-                if (aacCheck.supported) {
-                  aacSupported = true;
-                  chosenCodecString = cand;
-                }
-              } else {
-                aacSupported = true;
-                chosenCodecString = cand;
-              }
-            } catch {
-              // Try next candidate
-            }
-          }
-
-          if (aacSupported) {
-            chosenAudioCodec = "aac";
-            chosenFrameSize = 1024;
-            chosenSampleRate = preferredSampleRate;
-          } else {
-            // 2. Fallback to Opus support (960 frames/chunk @ 48kHz)
-            let opusSupported = false;
-            try {
-              if (typeof AudioEncoder.isConfigSupported === "function") {
-                const opusCheck = await AudioEncoder.isConfigSupported({
-                  codec: "opus",
-                  numberOfChannels: targetChannels,
-                  sampleRate: 48000,
-                  bitrate: AUDIO_BITRATE_BPS,
-                });
-                opusSupported = Boolean(opusCheck.supported);
-              } else {
-                opusSupported = true;
-              }
-            } catch {
-              opusSupported = false;
-            }
-
-            if (opusSupported) {
-              chosenAudioCodec = "opus";
-              chosenCodecString = "opus";
-              chosenFrameSize = 960; // 20ms @ 48kHz
-              chosenSampleRate = 48000;
-            }
-          }
-        }
-
-        // Render offline sliced audio buffer if codec was successfully negotiated
-        if (chosenAudioCodec) {
-          const totalOutputSamples = Math.max(1, Math.round(totalOutputDuration * chosenSampleRate));
-          const offlineCtx = new OfflineAudioContext(
-            targetChannels,
-            totalOutputSamples,
-            chosenSampleRate,
+      const remuxed = remuxAacPacketsForSegments(arrayBuffer, validSegments);
+      if (remuxed) {
+        audioPackets.push(...remuxed.packets);
+        chosenSampleRate = remuxed.sampleRate;
+        targetChannels = remuxed.channels;
+        hasAudioTrack = audioPackets.length > 0;
+      } else {
+        onProgress?.({
+          phase: "audio_processing",
+          currentFrame: 0,
+          totalFrames,
+          percent: 3,
+          speedMultiplier: 0,
+          fps: 0,
+          elapsedSec: 0,
+          estimatedRemainingSec: 0,
+          message: "Encoding AAC audio track...",
+        });
+        const decodedBuffer = await decodeAudioBufferForExport(arrayBuffer);
+        if (decodedBuffer && decodedBuffer.length > 0 && decodedBuffer.numberOfChannels > 0) {
+          const encoded = await encodeAacPacketsFromAudioBuffer(
+            decodedBuffer,
+            validSegments,
+            totalOutputDuration,
+            signal,
           );
-
-          let currentDestTime = 0;
-          for (const seg of validSegments) {
-            const segDuration = seg.endSec - seg.startSec;
-            if (segDuration > 0 && seg.startSec < decodedBuffer.duration) {
-              const safeOffset = Math.max(0, Math.min(seg.startSec, decodedBuffer.duration - 0.001));
-              const safeDuration = Math.min(segDuration, Math.max(0, decodedBuffer.duration - safeOffset));
-              if (safeDuration > 0) {
-                const src = offlineCtx.createBufferSource();
-                src.buffer = decodedBuffer;
-                src.connect(offlineCtx.destination);
-                src.start(currentDestTime, safeOffset, safeDuration);
-              }
-            }
-            currentDestTime += segDuration;
-          }
-
-          slicedAudioBuffer = await offlineCtx.startRendering();
-
-          // Encode Audio Samples with WebCodecs
-          let audioEncoderError: Error | null = null;
-          const audioEngine = new AudioEncoder({
-            output: (chunk, meta) => {
-              audioChunks.push({ chunk, meta });
-            },
-            error: (e) => {
-              console.error("AudioEncoder runtime error:", e);
-              audioEncoderError = e instanceof Error ? e : new Error(String(e));
-            },
-          });
-
-          try {
-            audioEngine.configure({
-              codec: chosenCodecString,
-              numberOfChannels: targetChannels,
-              sampleRate: chosenSampleRate,
-              bitrate: AUDIO_BITRATE_BPS,
-            });
-
-            const frameSize = chosenFrameSize;
-            const sampleRate = chosenSampleRate;
-            const numChannels = targetChannels;
-            const totalSamples = slicedAudioBuffer.length;
-            const planarBuffer = new Float32Array(frameSize * numChannels);
-
-            for (let offset = 0; offset < totalSamples; offset += frameSize) {
-              if (signal?.aborted) break;
-              if (audioEncoderError) throw audioEncoderError;
-
-              // Thermal & memory backpressure throttling
-              while (audioEngine.encodeQueueSize > 6) {
-                await new Promise((r) => setTimeout(r, 4));
-              }
-
-              const currentBlock = Math.min(frameSize, totalSamples - offset);
-              planarBuffer.fill(0); // Zero-pad the trailing samples
-
-              for (let ch = 0; ch < numChannels; ch++) {
-                const chData = slicedAudioBuffer.getChannelData(ch);
-                const slice = chData.subarray(offset, offset + currentBlock);
-                planarBuffer.set(slice, ch * frameSize);
-              }
-
-              const audioTimestampUs = Math.round((offset / sampleRate) * 1_000_000);
-              const audioData = new AudioData({
-                format: "f32-planar",
-                sampleRate,
-                numberOfFrames: frameSize,
-                numberOfChannels: numChannels,
-                timestamp: audioTimestampUs,
-                data: planarBuffer,
-              });
-
-              audioEngine.encode(audioData);
-              audioData.close();
-            }
-
-            await audioEngine.flush();
-            audioEngine.close();
-            hasAudioTrack = audioChunks.length > 0;
-          } catch (encErr) {
-            console.warn("Audio encoding was bypassed due to encoder error:", encErr);
-            try {
-              audioEngine.close();
-            } catch {
-              // Ignore cleanup error
-            }
-            hasAudioTrack = false;
-            audioChunks.length = 0;
+          if (encoded) {
+            audioPackets.push(...encoded.packets);
+            chosenSampleRate = encoded.sampleRate;
+            targetChannels = encoded.channels;
+            hasAudioTrack = audioPackets.length > 0;
           }
         }
       }
     } catch (err) {
-      console.warn("Audio extraction or decoding failed (exporting video-only):", err);
-      slicedAudioBuffer = null;
+      console.warn("Audio extraction failed (exporting video-only):", err);
       hasAudioTrack = false;
-      audioChunks.length = 0;
+      audioPackets.length = 0;
     }
   }
 
-  // 4. Initialize MP4 Muxer (with verified audio track configuration)
+  // 4. Initialize MP4 Muxer (AAC only — iOS will not play Opus in MP4)
   const mp4Muxer = new Mp4Muxer({
     target: new ArrayBufferTarget(),
     video: {
@@ -385,30 +408,27 @@ export async function exportVideoWebCodecs({
       frameRate: targetFps,
     },
     audio:
-      hasAudioTrack && chosenAudioCodec && slicedAudioBuffer
+      hasAudioTrack && audioPackets.length > 0
         ? {
-            codec: chosenAudioCodec,
+            codec: "aac",
             numberOfChannels: targetChannels,
             sampleRate: chosenSampleRate,
           }
         : undefined,
     fastStart: "in-memory",
-    firstTimestampBehavior: "offset",
+    firstTimestampBehavior: "cross-track-offset",
   });
 
-  // Audio Chunk Interleaving Helper:
-  // Feeds audio chunks in chronological lockstep with video chunks to ensure strict interleaving
-  // in the MP4 mdat container, preventing audio buffer underruns in Safari, QuickTime, iOS, and Android.
-  let nextAudioChunkIdx = 0;
+  let nextAudioPacketIdx = 0;
   const drainAudioChunksUpTo = (targetTimestampUs: number) => {
     if (!hasAudioTrack) return;
     while (
-      nextAudioChunkIdx < audioChunks.length &&
-      audioChunks[nextAudioChunkIdx].chunk.timestamp <= targetTimestampUs
+      nextAudioPacketIdx < audioPackets.length &&
+      audioPackets[nextAudioPacketIdx].timestampUs <= targetTimestampUs
     ) {
-      const { chunk, meta } = audioChunks[nextAudioChunkIdx];
-      mp4Muxer.addAudioChunk(chunk, meta);
-      nextAudioChunkIdx++;
+      const packet = audioPackets[nextAudioPacketIdx];
+      mp4Muxer.addAudioChunkRaw(packet.data, "key", packet.timestampUs, packet.durationUs);
+      nextAudioPacketIdx++;
     }
   };
 
@@ -648,7 +668,7 @@ export async function exportVideoWebCodecs({
 
   const stem = fileName.replace(/\.[^/.]+$/, "");
   const modeTag = segments.length > 1 ? "cut" : "trimmed";
-  const actualHasAudio = Boolean(hasAudioTrack && audioChunks.length > 0);
+  const actualHasAudio = Boolean(hasAudioTrack && audioPackets.length > 0);
   const soundTag = actualHasAudio ? "audio" : "muted";
   const exportedFileName = `${stem}_${modeTag}_${soundTag}_${Date.now().toString(36)}.mp4`;
 
@@ -664,9 +684,7 @@ export async function exportVideoWebCodecs({
     message: `Export completed in ${totalElapsedSec.toFixed(1)}s (${finalSpeedMultiplier}× realtime)!`,
   });
 
-  const audioCodecLabel = actualHasAudio
-    ? (chosenAudioCodec === "opus" ? "Opus (48kHz)" : "AAC (Stereo)")
-    : undefined;
+  const audioCodecLabel = actualHasAudio ? "AAC" : undefined;
 
   return {
     blob: finalBlob,

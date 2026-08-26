@@ -1,8 +1,7 @@
 /**
- * MP4 / QuickTime Audio Track Demuxer and ADTS Extractor
- * Extracts raw AAC audio streams from MP4/MOV/M4V video files and formats them into
- * standard ADTS streams, enabling 100% reliable AudioContext.decodeAudioData on all browsers
- * (specifically bypassing Safari/WebKit's limitation where decodeAudioData fails on video containers).
+ * MP4 / QuickTime AAC demuxer.
+ * Primary path for iPad Safari/Chrome: copy raw AAC frames (no AudioEncoder).
+ * Also packs those frames into ADTS for WebKit decodeAudioData fallback.
  */
 
 const SAMPLING_FREQUENCIES: Record<number, number> = {
@@ -21,11 +20,35 @@ const SAMPLING_FREQUENCIES: Record<number, number> = {
   7350: 12,
 };
 
+const ASC_SAMPLE_RATES = [
+  96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350,
+];
+
+const AAC_LC_FRAME_SAMPLES = 1024;
+
 export interface ExtractedAudioTrack {
   codec: string;
   sampleRate: number;
   channels: number;
   adtsData: Uint8Array;
+}
+
+export interface AacSample {
+  data: Uint8Array;
+  timestampUs: number;
+  durationUs: number;
+}
+
+export interface ExtractedAacTrack {
+  codec: "aac";
+  sampleRate: number;
+  channels: number;
+  samples: AacSample[];
+}
+
+export interface AudioTimeRange {
+  startSec: number;
+  endSec: number;
 }
 
 /**
@@ -89,7 +112,6 @@ function readBoxes(buffer: Uint8Array, start: number, end: number): Mp4Box[] {
 
     let headerSize = 8;
     if (size === 1 && pos + 16 <= end) {
-      // 64-bit large size
       const high = view.getUint32(pos + 8);
       const low = view.getUint32(pos + 12);
       size = high * 0x100000000 + low;
@@ -124,11 +146,121 @@ function findAllBoxes(boxes: Mp4Box[], type: string): Mp4Box[] {
   return boxes.filter((b) => b.type === type);
 }
 
+function findEsdsBox(buffer: Uint8Array, start: number, end: number): Mp4Box | undefined {
+  const boxes = readBoxes(buffer, start, end);
+  for (const box of boxes) {
+    if (box.type === "esds") return box;
+    if (box.type === "wave" || box.type === "mp4a") {
+      const nested = findEsdsBox(buffer, box.start + box.headerSize, box.end);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
+}
+
+function readMpeg4Length(bytes: Uint8Array, offset: number, end: number): { length: number; next: number } {
+  let length = 0;
+  let pos = offset;
+  for (let i = 0; i < 4 && pos < end; i++) {
+    const b = bytes[pos++];
+    length = (length << 7) | (b & 0x7f);
+    if ((b & 0x80) === 0) break;
+  }
+  return { length, next: pos };
+}
+
+function parseAudioSpecificConfig(bytes: Uint8Array, offset: number): { sampleRate: number; channels: number } | null {
+  if (offset + 2 > bytes.length) return null;
+  const b0 = bytes[offset];
+  const b1 = bytes[offset + 1];
+  const freqIndex = ((b0 & 0x07) << 1) | ((b1 >> 7) & 0x01);
+  const sampleRate = ASC_SAMPLE_RATES[freqIndex] ?? 48000;
+  const channels = Math.min(2, Math.max(1, (b1 >> 3) & 0x0f || 2));
+  return { sampleRate, channels };
+}
+
+function scanDecoderSpecificInfo(
+  bytes: Uint8Array,
+  start: number,
+  end: number,
+): { sampleRate: number; channels: number } | null {
+  let pos = start;
+  while (pos + 2 < end) {
+    const tag = bytes[pos++];
+    const sized = readMpeg4Length(bytes, pos, end);
+    pos = sized.next;
+    const payloadEnd = Math.min(end, pos + sized.length);
+    if (payloadEnd < pos) break;
+
+    if (tag === 0x05) {
+      return parseAudioSpecificConfig(bytes, pos);
+    }
+    if (tag === 0x03) {
+      if (pos + 3 > payloadEnd) {
+        pos = payloadEnd;
+        continue;
+      }
+      const flags = bytes[pos + 2];
+      let nested = pos + 3;
+      if (flags & 0x80) nested += 2;
+      if (flags & 0x40 && nested < payloadEnd) {
+        nested += 1 + bytes[nested];
+      }
+      if (flags & 0x20) nested += 2;
+      const found = scanDecoderSpecificInfo(bytes, nested, payloadEnd);
+      if (found) return found;
+    } else if (tag === 0x04) {
+      const found = scanDecoderSpecificInfo(bytes, pos + 13, payloadEnd);
+      if (found) return found;
+    }
+    pos = payloadEnd;
+  }
+  return null;
+}
+
+function parseEsdsConfig(bytes: Uint8Array, esds: Mp4Box): { sampleRate: number; channels: number } | null {
+  return scanDecoderSpecificInfo(bytes, esds.start + esds.headerSize + 4, esds.end);
+}
+
+function readMdhdTimescale(bytes: Uint8Array, view: DataView, mdhd: Mp4Box): number {
+  const payload = mdhd.start + mdhd.headerSize;
+  const version = bytes[payload];
+  const timescale = version === 1 ? view.getUint32(payload + 20) : view.getUint32(payload + 12);
+  return timescale > 0 ? timescale : 0;
+}
+
+function audioSampleEntryBodyStart(view: DataView, entryStart: number): number {
+  const version = view.getUint16(entryStart + 16);
+  if (version === 1) return entryStart + 52;
+  if (version === 2) return entryStart + 72;
+  return entryStart + 36;
+}
+
+function stripAdtsIfPresent(sample: Uint8Array): Uint8Array {
+  if (sample.length < 8) return sample;
+  if (sample[0] !== 0xff || (sample[1] & 0xf0) !== 0xf0) return sample;
+  const packetLength =
+    ((sample[3] & 0x03) << 11) | (sample[4] << 3) | ((sample[5] >> 5) & 0x07);
+  if (packetLength === sample.length && packetLength > 7) {
+    return sample.subarray(7);
+  }
+  return sample;
+}
+
+function ticksToUs(ticks: number, timescale: number): number {
+  if (ticks <= 0) return 0;
+  return Math.round((ticks * 1_000_000) / timescale);
+}
+
+function durationTicksToUs(ticks: number, timescale: number): number {
+  return Math.max(1, ticksToUs(Math.max(1, ticks), timescale));
+}
+
 /**
- * Parses an MP4/MOV ArrayBuffer and extracts AAC audio packets converted to ADTS.
- * Returns null if the file has no AAC audio track or is not an ISOBMFF file.
+ * Parses an MP4/MOV buffer and returns raw AAC frames with timestamps.
+ * Returns null when there is no usable AAC track (the iPad remux path then cannot run).
  */
-export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioTrack | null {
+export function extractMp4AacTrack(arrayBuffer: ArrayBuffer): ExtractedAacTrack | null {
   try {
     const bytes = new Uint8Array(arrayBuffer);
     const view = new DataView(arrayBuffer);
@@ -149,7 +281,6 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
       const hdlr = findBox(mdiaBoxes, "hdlr");
       if (!hdlr) continue;
 
-      // Check handler type at offset 8 of hdlr box payload
       const hdlrPayload = hdlr.start + hdlr.headerSize;
       const handlerType = String.fromCharCode(
         bytes[hdlrPayload + 8],
@@ -158,8 +289,9 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
         bytes[hdlrPayload + 11],
       );
 
-      if (handlerType !== "soun") continue; // Not an audio track
+      if (handlerType !== "soun") continue;
 
+      const mdhd = findBox(mdiaBoxes, "mdhd");
       const minf = findBox(mdiaBoxes, "minf");
       if (!minf) continue;
 
@@ -171,15 +303,16 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
       const stsd = findBox(stblBoxes, "stsd");
       const stsz = findBox(stblBoxes, "stsz");
       const stsc = findBox(stblBoxes, "stsc");
+      const stts = findBox(stblBoxes, "stts");
       const stco = findBox(stblBoxes, "stco");
       const co64 = findBox(stblBoxes, "co64");
 
       if (!stsd || !stsz || !stsc || (!stco && !co64)) continue;
 
-      // Parse sample description (stsd)
       const stsdPayload = stsd.start + stsd.headerSize;
-      // skip version (4 bytes), entry count (4 bytes) -> offset 8
       const entryStart = stsdPayload + 8;
+      if (entryStart + 8 > stsd.end) continue;
+
       const audioCodecType = String.fromCharCode(
         bytes[entryStart + 4],
         bytes[entryStart + 5],
@@ -187,18 +320,34 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
         bytes[entryStart + 7],
       );
 
-      // We handle AAC audio tracks ('mp4a')
       if (audioCodecType !== "mp4a") continue;
 
-      const channels = view.getUint16(entryStart + 16 + 8); // AudioSampleEntry channel count
-      const sampleRateRaw = view.getUint32(entryStart + 24 + 8); // AudioSampleEntry sample rate (16.16 fixed point)
+      const entrySize = view.getUint32(entryStart);
+      const entryEnd = Math.min(stsd.end, entryStart + Math.max(entrySize, 36));
+
+      let channels = Math.min(2, Math.max(1, view.getUint16(entryStart + 24) || 2));
+      const sampleRateRaw = view.getUint32(entryStart + 32);
       let sampleRate = sampleRateRaw >>> 16;
       if (sampleRate === 0) sampleRate = 48000;
 
-      // Parse Chunk Offsets (stco or co64)
+      const esds = findEsdsBox(bytes, audioSampleEntryBodyStart(view, entryStart), entryEnd);
+      if (esds) {
+        const fromEsds = parseEsdsConfig(bytes, esds);
+        if (fromEsds) {
+          sampleRate = fromEsds.sampleRate;
+          channels = fromEsds.channels;
+        }
+      }
+
+      const timescale = (mdhd && readMdhdTimescale(bytes, view, mdhd)) || sampleRate;
+      const defaultDeltaTicks = Math.max(
+        1,
+        Math.round((AAC_LC_FRAME_SAMPLES * timescale) / Math.max(1, sampleRate)),
+      );
+
       const chunkOffsets: number[] = [];
       if (stco) {
-        const p = stco.start + stco.headerSize + 4; // skip version/flags (4)
+        const p = stco.start + stco.headerSize + 4;
         const entryCount = view.getUint32(p);
         for (let i = 0; i < entryCount; i++) {
           chunkOffsets.push(view.getUint32(p + 4 + i * 4));
@@ -213,12 +362,10 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
         }
       }
 
-      // Parse Sample Sizes (stsz)
-      const stszPayload = stsz.start + stsz.headerSize + 4; // skip version/flags
+      const stszPayload = stsz.start + stsz.headerSize + 4;
       const uniformSampleSize = view.getUint32(stszPayload);
       const sampleCount = view.getUint32(stszPayload + 4);
       const sampleSizes: number[] = [];
-
       if (uniformSampleSize > 0) {
         for (let i = 0; i < sampleCount; i++) {
           sampleSizes.push(uniformSampleSize);
@@ -229,14 +376,9 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
         }
       }
 
-      // Parse Sample to Chunk (stsc)
       const stscPayload = stsc.start + stsc.headerSize + 4;
       const stscCount = view.getUint32(stscPayload);
-      interface StscEntry {
-        firstChunk: number;
-        samplesPerChunk: number;
-      }
-      const stscEntries: StscEntry[] = [];
+      const stscEntries: Array<{ firstChunk: number; samplesPerChunk: number }> = [];
       for (let i = 0; i < stscCount; i++) {
         stscEntries.push({
           firstChunk: view.getUint32(stscPayload + 4 + i * 12),
@@ -244,23 +386,38 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
         });
       }
 
-      // Reconstruct sample byte positions and pack into ADTS
-      let totalAdtsBytes = 0;
-      for (const size of sampleSizes) {
-        totalAdtsBytes += size + 7;
+      const sttsEntries: Array<{ sampleCount: number; sampleDelta: number }> = [];
+      if (stts) {
+        const p = stts.start + stts.headerSize + 4;
+        const sttsCount = view.getUint32(p);
+        for (let i = 0; i < sttsCount; i++) {
+          sttsEntries.push({
+            sampleCount: view.getUint32(p + 4 + i * 8),
+            sampleDelta: view.getUint32(p + 8 + i * 8),
+          });
+        }
       }
 
-      if (totalAdtsBytes === 0) return null;
-
-      const adtsBuffer = new Uint8Array(totalAdtsBytes);
-      let writeOffset = 0;
+      const samples: AacSample[] = [];
       let sampleIdx = 0;
+      let dtsTicks = 0;
+      let sttsEntryIdx = 0;
+      let sttsRemaining = sttsEntries[0]?.sampleCount ?? 0;
+
+      const nextSampleDeltaTicks = (): number => {
+        if (sttsEntries.length === 0) return defaultDeltaTicks;
+        while (sttsEntryIdx < sttsEntries.length && sttsRemaining <= 0) {
+          sttsEntryIdx++;
+          sttsRemaining = sttsEntries[sttsEntryIdx]?.sampleCount ?? 0;
+        }
+        const delta = sttsEntries[sttsEntryIdx]?.sampleDelta ?? defaultDeltaTicks;
+        if (sttsRemaining > 0) sttsRemaining--;
+        return Math.max(1, delta);
+      };
 
       for (let chunkIdx = 0; chunkIdx < chunkOffsets.length; chunkIdx++) {
-        const chunkNumber = chunkIdx + 1; // 1-indexed
+        const chunkNumber = chunkIdx + 1;
         let samplesInChunk = 1;
-
-        // Find applicable stsc entry
         for (let j = stscEntries.length - 1; j >= 0; j--) {
           if (chunkNumber >= stscEntries[j].firstChunk) {
             samplesInChunk = stscEntries[j].samplesPerChunk;
@@ -269,36 +426,100 @@ export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioT
         }
 
         let chunkFileOffset = chunkOffsets[chunkIdx];
-
         for (let s = 0; s < samplesInChunk && sampleIdx < sampleSizes.length; s++) {
           const sampleSize = sampleSizes[sampleIdx];
-          if (chunkFileOffset + sampleSize <= bytes.length) {
-            const header = createAdtsHeader(sampleSize, sampleRate, channels);
-            adtsBuffer.set(header, writeOffset);
-            writeOffset += 7;
-
-            const sampleData = bytes.subarray(chunkFileOffset, chunkFileOffset + sampleSize);
-            adtsBuffer.set(sampleData, writeOffset);
-            writeOffset += sampleSize;
+          const deltaTicks = nextSampleDeltaTicks();
+          if (sampleSize > 0 && chunkFileOffset + sampleSize <= bytes.length) {
+            const raw = stripAdtsIfPresent(bytes.subarray(chunkFileOffset, chunkFileOffset + sampleSize));
+            if (raw.length > 0) {
+              samples.push({
+                data: raw.slice(),
+                timestampUs: ticksToUs(dtsTicks, timescale),
+                durationUs: durationTicksToUs(deltaTicks, timescale),
+              });
+            }
           }
-
+          dtsTicks += deltaTicks;
           chunkFileOffset += sampleSize;
           sampleIdx++;
         }
       }
 
-      if (writeOffset > 0) {
+      if (samples.length > 0) {
         return {
           codec: "aac",
           sampleRate,
           channels,
-          adtsData: adtsBuffer.subarray(0, writeOffset),
+          samples,
         };
       }
     }
   } catch (err) {
-    console.warn("MP4 audio track extraction failed:", err);
+    console.warn("MP4 AAC track extraction failed:", err);
   }
 
   return null;
+}
+
+/**
+ * Copies AAC frames that overlap the export ranges and rebases timestamps to 0.
+ */
+export function sliceAacSamples(track: ExtractedAacTrack, ranges: AudioTimeRange[]): ExtractedAacTrack {
+  const samples: AacSample[] = [];
+  let destUs = 0;
+
+  for (const range of ranges) {
+    if (!(range.endSec > range.startSec)) continue;
+    const startUs = Math.max(0, range.startSec) * 1_000_000;
+    const endUs = range.endSec * 1_000_000;
+
+    for (const sample of track.samples) {
+      const sampleEndUs = sample.timestampUs + sample.durationUs;
+      if (sampleEndUs <= startUs) continue;
+      if (sample.timestampUs >= endUs) break;
+      samples.push({
+        data: sample.data,
+        timestampUs: destUs,
+        durationUs: sample.durationUs,
+      });
+      destUs += sample.durationUs;
+    }
+  }
+
+  return {
+    codec: "aac",
+    sampleRate: track.sampleRate,
+    channels: track.channels,
+    samples,
+  };
+}
+
+/**
+ * Parses an MP4/MOV ArrayBuffer and extracts AAC audio packets converted to ADTS.
+ * Returns null if the file has no AAC audio track or is not an ISOBMFF file.
+ */
+export function extractMp4AudioToAdts(arrayBuffer: ArrayBuffer): ExtractedAudioTrack | null {
+  const track = extractMp4AacTrack(arrayBuffer);
+  if (!track || track.samples.length === 0) return null;
+
+  let totalAdtsBytes = 0;
+  for (const sample of track.samples) {
+    totalAdtsBytes += sample.data.length + 7;
+  }
+
+  const adtsBuffer = new Uint8Array(totalAdtsBytes);
+  let writeOffset = 0;
+  for (const sample of track.samples) {
+    adtsBuffer.set(createAdtsHeader(sample.data.length, track.sampleRate, track.channels), writeOffset);
+    writeOffset += 7;
+    adtsBuffer.set(sample.data, writeOffset);
+    writeOffset += sample.data.length;
+  }
+
+  return {
+    codec: "aac",
+    sampleRate: track.sampleRate,
+    channels: track.channels,
+    adtsData: adtsBuffer.subarray(0, writeOffset),
+  };
 }
