@@ -66,7 +66,7 @@ export const DEFAULT_AUDIO_EXPORT_CONFIG: AudioExportConfig = {
   fadeOutSec: 0,
   applyEq: true,
   applyDynamics: true,
-  exportRangeOnly: false,
+  exportRangeOnly: true,
   applyPlaybackSpeed: true,
 };
 
@@ -476,6 +476,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     const effectiveRate = cfg.applyPlaybackSpeed !== false ? (cfg.playbackRate ?? rate) : 1.0;
     const effectivePitchPreserve =
       cfg.applyPlaybackSpeed !== false ? (cfg.pitchPreserve ?? pitchPreserve) : true;
+    const useRange = cfg.exportRangeOnly && (trimStart !== null || trimEnd !== null);
+    const effectiveTrimStart = useRange ? trimStart : null;
+    const effectiveTrimEnd = useRange ? trimEnd : null;
 
     const startTime = performance.now();
     set({
@@ -499,8 +502,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       const renderedBuffer = await renderProcessedAudioOffline({
         sourceBuffer: audio.audioBuffer,
         trimMode,
-        trimStart: cfg.exportRangeOnly ? (trimStart ?? 0) : trimStart,
-        trimEnd: cfg.exportRangeOnly ? (trimEnd ?? audio.duration) : trimEnd,
+        trimStart: effectiveTrimStart,
+        trimEnd: effectiveTrimEnd,
         eq,
         applyEq: !eqBypass && cfg.applyEq,
         lowCut,
@@ -564,7 +567,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       });
 
       const baseName = fileStem(audio.fileName);
-      const modeSuffix = trimStart !== null || trimEnd !== null ? `_${trimMode}` : "_master";
+      const modeSuffix = useRange ? `_${trimMode}` : "_master";
       const speedSuffix =
         Math.abs(effectiveRate - 1.0) >= 0.01
           ? `_${effectiveRate}x${effectivePitchPreserve ? "" : "_tape"}`
@@ -607,7 +610,14 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         exportResult: result,
       });
 
-      toast.success(`Export succeeded! Ready to download: ${outFileName}`);
+      if (encoded.fallbackOccurred) {
+        toast.warning(
+          `Browser does not support ${encoded.originalFormat?.toUpperCase()} encoding. Exported as lossless WAV (${outFileName}) instead.`,
+          { duration: 6000 },
+        );
+      } else {
+        toast.success(`Export succeeded! Ready to download: ${outFileName}`);
+      }
     } catch (err) {
       set({
         isExporting: false,
@@ -706,7 +716,15 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         exportProgressData: null,
         exportResult: result,
       });
-      toast.success(`Exported slice: ${outFileName}. Click Save to download.`);
+
+      if (encoded.fallbackOccurred) {
+        toast.warning(
+          `Browser does not support ${encoded.originalFormat?.toUpperCase()} encoding. Exported slice as lossless WAV (${outFileName}) instead.`,
+          { duration: 6000 },
+        );
+      } else {
+        toast.success(`Exported slice: ${outFileName}. Click Save to download.`);
+      }
     } catch (err) {
       set({
         isExporting: false,

@@ -59,7 +59,11 @@ export function AudioTrimControls() {
   const endVal = trimEnd ?? duration;
   const rangeDuration = Math.max(0, endVal - startVal);
   const effectiveBaseDuration =
-    trimMode === "trim" ? (hasRange ? rangeDuration : duration) : Math.max(0, duration - rangeDuration);
+    !exportConfig.exportRangeOnly || !hasRange
+      ? duration
+      : trimMode === "trim"
+        ? rangeDuration
+        : Math.max(0, duration - rangeDuration);
   const effectiveOutputDuration =
     exportConfig.applyPlaybackSpeed !== false && rate > 0
       ? effectiveBaseDuration / rate
@@ -328,7 +332,7 @@ export function AudioTrimControls() {
             <div className="flex flex-col gap-1">
               <Label className="text-[10px] text-muted-foreground">Bitrate (kbps)</Label>
               <Select
-                value={String(exportConfig.bitrateKbps || 192)}
+                value={String(exportConfig.bitrateKbps)}
                 onValueChange={(val) =>
                   setExportConfig({ bitrateKbps: Number.parseInt(val, 10) })
                 }
@@ -365,6 +369,38 @@ export function AudioTrimControls() {
                 <SelectItem value="1">Mono (1 Channel)</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+        </div>
+
+        {/* Export DSP Routing & Range Toggles */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/40 pt-2 text-[10px]">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer" title="Export with 5-Band EQ and Tone shaping applied">
+              <Switch
+                checked={exportConfig.applyEq}
+                onCheckedChange={(checked) => setExportConfig({ applyEq: checked })}
+                className="scale-75"
+              />
+              <span>Apply EQ</span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer" title="Export with Dynamics Compressor applied">
+              <Switch
+                checked={exportConfig.applyDynamics}
+                onCheckedChange={(checked) => setExportConfig({ applyDynamics: checked })}
+                className="scale-75"
+              />
+              <span>Apply Dynamics</span>
+            </label>
+            {hasRange && (
+              <label className="flex items-center gap-1.5 cursor-pointer" title="Export trimmed/cut section instead of full audio track">
+                <Switch
+                  checked={exportConfig.exportRangeOnly}
+                  onCheckedChange={(checked) => setExportConfig({ exportRangeOnly: checked })}
+                  className="scale-75"
+                />
+                <span>Apply In/Out Range</span>
+              </label>
+            )}
           </div>
         </div>
 
@@ -418,7 +454,7 @@ export function AudioTrimControls() {
               ? "Rendering Master Audio..."
               : exportConfig.format === "wav"
                 ? `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitDepth}-bit)`
-                : `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitrateKbps || 192} kbps)`}
+                : `Export Master Audio (${exportConfig.format.toUpperCase()} · ${exportConfig.bitrateKbps} kbps)`}
           </Button>
 
           {/* Active Audio Export Progress Panel (matching Video Deck style) */}

@@ -35,6 +35,7 @@ export function AudioDspControls() {
   const setLowCut = useAudioStore((s) => s.setLowCut);
   const setHighCut = useAudioStore((s) => s.setHighCut);
   const setDynamics = useAudioStore((s) => s.setDynamics);
+  const setDynamicsBypass = useAudioStore((s) => s.setDynamicsBypass);
   const setGainBoost = useAudioStore((s) => s.setGainBoost);
   const setPan = useAudioStore((s) => s.setPan);
   const setInvertPhase = useAudioStore((s) => s.setInvertPhase);
@@ -198,15 +199,23 @@ export function AudioDspControls() {
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               3. Dynamics Compressor & Gain Staging
             </span>
+            {(!dynamics.enabled || dynamicsBypass) && (
+              <Badge variant="outline" className="border-amber-600 text-amber-500 text-[9px] py-0">
+                BYPASS
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-[10px] cursor-pointer">
               <Switch
                 checked={dynamics.enabled && !dynamicsBypass}
-                onCheckedChange={(v) => setDynamics({ enabled: v })}
+                onCheckedChange={(v) => {
+                  setDynamics({ enabled: v });
+                  setDynamicsBypass(!v);
+                }}
                 className="scale-75"
               />
-              <span>{dynamics.enabled ? "Compressor ON" : "Bypass"}</span>
+              <span>{dynamics.enabled && !dynamicsBypass ? "Active" : "Enable Comp"}</span>
             </label>
           </div>
         </div>
@@ -223,7 +232,7 @@ export function AudioDspControls() {
               min={-60}
               max={0}
               step={1}
-              disabled={!dynamics.enabled}
+              disabled={!dynamics.enabled || dynamicsBypass}
               onValueChange={([v]) => setDynamics({ threshold: v ?? -24 })}
             />
           </div>
@@ -239,7 +248,7 @@ export function AudioDspControls() {
               min={1}
               max={20}
               step={0.5}
-              disabled={!dynamics.enabled}
+              disabled={!dynamics.enabled || dynamicsBypass}
               onValueChange={([v]) => setDynamics({ ratio: v ?? 4 })}
             />
           </div>
@@ -255,7 +264,7 @@ export function AudioDspControls() {
               min={0}
               max={24}
               step={0.5}
-              disabled={!dynamics.enabled}
+              disabled={!dynamics.enabled || dynamicsBypass}
               onValueChange={([v]) => setDynamics({ makeupGain: v ?? 0 })}
             />
           </div>

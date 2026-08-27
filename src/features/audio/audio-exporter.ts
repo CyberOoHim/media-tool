@@ -11,6 +11,8 @@ export interface EncodedAudioResult {
   format: AudioExportFormat;
   bitrateKbps?: number;
   bitDepth?: number;
+  fallbackOccurred?: boolean;
+  originalFormat?: AudioExportFormat;
 }
 
 /**
@@ -78,29 +80,20 @@ export async function encodeAudioBuffer(
         console.warn("WebCodecs MP3 encoding fallback:", err);
       }
     }
-
-    // Fallback: standard high-fidelity audio blob with .mp3 output
-    onProgress?.(50);
-    const wavBlob = audioBufferToWavBlob(buffer, 16);
-    onProgress?.(100);
-    return {
-      blob: wavBlob,
-      extension: "mp3",
-      mimeType: "audio/mpeg",
-      format: "mp3",
-      bitrateKbps,
-    };
   }
 
-  // Fallback: Default to WAV PCM
-  onProgress?.(100);
+  // Fallback: Default to clean lossless WAV PCM and signal that format fallback occurred
+  onProgress?.(50);
   const fallbackBlob = audioBufferToWavBlob(buffer, bitDepth);
+  onProgress?.(100);
   return {
     blob: fallbackBlob,
     extension: "wav",
     mimeType: "audio/wav",
     format: "wav",
     bitDepth,
+    fallbackOccurred: true,
+    originalFormat: format,
   };
 }
 
