@@ -1,4 +1,6 @@
 import {
+  ChevronDown,
+  ChevronUp,
   Copy,
   Download,
   ExternalLink,
@@ -11,7 +13,6 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { DeckExpander } from "@/components/layout/deck-expander";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
 import { TransformControls } from "@/components/media/transform-controls";
@@ -81,6 +82,7 @@ export function ImageBench() {
   const resetBenchTransform = useMediaStore((s) => s.resetBenchTransform);
   const setError = useMediaStore((s) => s.setError);
 
+  const [activeBenchTab, setActiveBenchTab] = useState<"budget" | "transform" | "none">("budget");
   const [isPanning, setIsPanning] = useState(false);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{
@@ -236,7 +238,7 @@ export function ImageBench() {
 
       {/* Source Image Metadata Inspector Ribbon */}
       {source && sourceMeta ? (
-        <div className="mb-3.5 rounded-[var(--radius-sm)] border-2 border-border bg-card p-2.5 font-mono text-[11px] space-y-1.5 shadow-[2px_2px_0px_var(--color-border)]">
+        <div className="mb-3.5 rounded-[var(--radius-sm)] border border-border/80 bg-card p-2.5 font-mono text-[11px] space-y-1.5 shadow-xs">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
             <div className="flex items-center gap-1.5 font-bold text-foreground">
               <span className="rounded-xs bg-primary px-1.5 py-0.2 text-[9px] font-bold text-primary-foreground uppercase">
@@ -263,310 +265,9 @@ export function ImageBench() {
         </div>
       ) : null}
 
-      {/* Bench Transform Toolbar (Zoom, Pan, Rotate, Flip, Crop) */}
-      <div className={cn("mb-3.5", !source && "pointer-events-none opacity-40")}>
-        <DeckExpander
-          id="deck-bench-transform"
-          title="Bench-2 // Transform & Framing Calibration"
-          subtitle="Zoom, pan, rotate & framing alignment for the target image"
-          icon={<Sliders className="size-3.5" />}
-          badge={
-            hasActiveTransform(benchTransform) ? (
-              <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
-                ACTIVE TRANSFORM
-              </Badge>
-            ) : null
-          }
-          disabled={!source}
-        >
-          <TransformControls
-            transform={{
-              ...benchTransform,
-              cropPreset: settings.cropPreset,
-            }}
-            onChange={(partial) => {
-              if (partial.cropPreset !== undefined) {
-                setSettings({ cropPreset: partial.cropPreset });
-              }
-              setBenchTransform(partial);
-            }}
-            onReset={() => {
-              resetBenchTransform();
-              setSettings({ cropPreset: "none" });
-              toast("Bench transforms reset");
-            }}
-            title="Transform Calibration"
-            disabled={!source}
-          />
-        </DeckExpander>
-      </div>
-
-      {/* Preset Controls & Compression Budget Deck */}
-      <div className={cn("relative mb-3.5", !source && "pointer-events-none opacity-40")}>
-        <DeckExpander
-          id="deck-bench-budget"
-          title="Bench-2 // Compression Budget & Output Quality"
-          subtitle="Aspect ratio framing, target file size budget & format presets"
-          icon={<Sparkles className="size-3.5" />}
-          badge={
-            <Badge variant="outline" className="px-1.5 py-0 text-[8px] font-mono">
-              {settings.targetKb} KB · {settings.format.toUpperCase()}
-            </Badge>
-          }
-          disabled={!source}
-        >
-          <div className="relative space-y-3.5">
-            {/* Quick Aspect Ratio Chips */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-                  1. Aspect Ratio / Framing Preset:
-                </Label>
-                <span className="font-mono text-[11px] font-bold text-primary">
-                  {CROP_PRESETS.find((p) => p.id === settings.cropPreset)?.label}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {QUICK_ASPECTS.map((asp) => {
-                  const active = settings.cropPreset === asp.id;
-                  return (
-                    <Button
-                      key={asp.id}
-                      type="button"
-                      size="sm"
-                      variant={active ? "primary" : "outline"}
-                      onClick={() => {
-                        setSettings({ cropPreset: asp.id });
-                        setBenchTransform({ cropPreset: asp.id });
-                      }}
-                      className="h-7 px-2 text-[10px] font-bold"
-                    >
-                      {asp.label}
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Custom Dimensions If Selected */}
-            {settings.cropPreset === "custom" ? (
-              <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 p-2.5">
-                <Label className="mb-1.5 block font-mono text-[11px] font-bold uppercase text-foreground">
-                  Custom Pixel Dimensions (Width × Height)
-                </Label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    min={50}
-                    max={4096}
-                    placeholder="Width"
-                    value={settings.customWidth}
-                    onChange={(e) => setSettings({ customWidth: e.target.value })}
-                    className="w-28 font-mono text-xs"
-                  />
-                  <span className="font-bold text-foreground">×</span>
-                  <Input
-                    type="number"
-                    min={50}
-                    max={4096}
-                    placeholder="Height"
-                    value={settings.customHeight}
-                    onChange={(e) => setSettings({ customHeight: e.target.value })}
-                    className="w-28 font-mono text-xs"
-                  />
-                  <span className="font-mono text-[11px] text-muted-foreground">px</span>
-                </div>
-              </div>
-            ) : null}
-
-            {/* Quick Target Budget Chips & Sliders */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {/* Target KB Slider & Quick Chips */}
-              <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/40 p-2.5">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-                    2. Target Budget:
-                  </Label>
-                  <span className="rounded-xs border border-border bg-signal px-1.5 py-0.2 font-mono text-xs font-bold text-foreground">
-                    {settings.targetKb} KB
-                  </span>
-                </div>
-
-                <Slider
-                  min={20}
-                  max={600}
-                  step={5}
-                  value={[settings.targetKb]}
-                  onValueChange={([v]) => setSettings({ targetKb: v ?? 175 })}
-                />
-
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {QUICK_BUDGETS.map((kb) => (
-                    <Button
-                      key={kb}
-                      type="button"
-                      size="sm"
-                      variant={settings.targetKb === kb ? "signal" : "outline"}
-                      onClick={() => setSettings({ targetKb: kb })}
-                      className="h-6 px-1.5 text-[9px] font-bold"
-                    >
-                      {kb}K
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Quality & Format Block */}
-              <div className="rounded-[var(--radius-sm)] border-2 border-border bg-secondary/40 p-2.5">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-                    3. Quality & Format:
-                  </Label>
-                  <span className="font-mono text-xs font-bold text-foreground">
-                    {Math.round(settings.quality * 100)}%
-                  </span>
-                </div>
-
-                <Slider
-                  min={10}
-                  max={100}
-                  step={5}
-                  value={[Math.round(settings.quality * 100)]}
-                  onValueChange={([v]) => setSettings({ quality: (v ?? 85) / 100 })}
-                />
-
-                <div className="mt-2 flex items-center gap-2">
-                  <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground">Format:</span>
-                  <Select
-                    value={settings.format}
-                    onValueChange={(value) => setSettings({ format: value as OutputFormat })}
-                  >
-                    <SelectTrigger className="h-7 text-[11px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FORMAT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.id} value={opt.id}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            {/* Real-Time Live Output Estimator & 3-Stage Budget Comparison Meter */}
-            <div className="space-y-2 rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 font-mono text-[11px]">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
-                <div className="flex items-center gap-1.5 font-bold text-foreground">
-                  <Sparkles className="size-3.5 text-signal" />
-                  <span className="uppercase tracking-wide">Target Estimation & Budget Gauge</span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10px] text-muted-foreground">Est. Output Size:</span>
-                  <span className="rounded-xs border border-signal bg-signal/15 px-2 py-0.5 text-xs font-bold text-foreground shadow-[1px_1px_0px_var(--color-signal)]">
-                    ~{imageEstimation.estimatedFormatted}
-                  </span>
-                  <span className="rounded-xs border border-success/30 bg-success/15 px-1.5 py-0.2 text-[10px] font-bold text-success">
-                    -{imageEstimation.savingsPct}% Saved
-                  </span>
-                </div>
-              </div>
-
-              {/* Proposed UI Layout Format: Specs & Real-Time Estimate Line */}
-              <div className="space-y-1.5 rounded-xs border border-border/70 bg-secondary/40 p-2 text-[10px]">
-                <div className="flex flex-wrap items-center justify-between gap-1 text-muted-foreground">
-                  <span className="text-foreground">
-                    ⚙️ Target Budget: <strong>{settings.targetKb} KB</strong> | <strong>{Math.round(settings.quality * 100)}% Quality</strong> | <strong>{imageEstimation.targetFormat}</strong> | <strong>{CROP_PRESETS.find((p) => p.id === settings.cropPreset)?.label}</strong>
-                  </span>
-                  <span>
-                    Target Res: <strong className="text-foreground">{imageEstimation.targetWidth}×{imageEstimation.targetHeight} px</strong> ({imageEstimation.estimatedBppFormatted})
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-1 pt-1 border-t border-border/40 font-bold">
-                  <span className="text-foreground">
-                    📊 REAL-TIME ESTIMATE: <span className="text-signal">~{imageEstimation.estimatedFormatted}</span> (-{imageEstimation.savingsPct}% vs raw)
-                  </span>
-                  <span className="text-muted-foreground text-[9.5px]">
-                    Pixel Shift: <strong className="text-foreground">{imageEstimation.pixelCountChangePct === 0 ? "100% Retained" : imageEstimation.pixelCountChangePct > 0 ? `+${imageEstimation.pixelCountChangePct}% pixels` : `${imageEstimation.pixelCountChangePct}% pixels`}</strong>
-                  </span>
-                </div>
-              </div>
-
-              {/* Visual 3-Stage Budget Comparison Meter */}
-              <div className="space-y-1.5 rounded-xs border border-border/40 bg-secondary/20 p-2 text-[10px]">
-                <div className="flex items-center justify-between font-bold text-foreground">
-                  <span className="flex flex-wrap items-center gap-1 text-muted-foreground">
-                    <span>Source ({sourceMeta ? sourceMeta.fileSizeFormatted : "—"})</span>
-                    <span>➜</span>
-                    <span>Budget ({imageEstimation.budgetFormatted})</span>
-                    <span>➜</span>
-                    <span className="text-foreground">
-                      {output ? `Actual (${formatFileSize(output.blob.size)})` : `Estimated (~${imageEstimation.estimatedFormatted})`}
-                    </span>
-                  </span>
-                  <span className={output && output.blob.size <= settings.targetKb * 1024 ? "text-success" : "text-signal"}>
-                    {output ? (output.blob.size <= settings.targetKb * 1024 ? "✔ On Budget" : "⚡ Quality Priority") : "Live Estimating"}
-                  </span>
-                </div>
-
-                {/* Gauge Bar */}
-                <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary border border-border">
-                  {/* Target Budget Marker / Zone */}
-                  <div
-                    className="absolute top-0 bottom-0 bg-signal/25 border-r-2 border-signal z-10"
-                    style={{
-                      width: `${Math.min(100, Math.max(10, source ? (imageEstimation.budgetBytes / source.fileSize) * 100 : 50))}%`,
-                    }}
-                    title={`Budget Cap: ${imageEstimation.budgetFormatted}`}
-                  />
-                  {/* Current / Estimated Output Bar */}
-                  <div
-                    className="h-full bg-primary transition-all z-20"
-                    style={{
-                      width: `${Math.min(100, Math.max(5, source ? ((output ? output.blob.size : imageEstimation.estimatedBytes) / source.fileSize) * 100 : 25))}%`,
-                    }}
-                    title={`Output Size: ${output ? formatFileSize(output.blob.size) : imageEstimation.estimatedFormatted}`}
-                  />
-                </div>
-                <div className="flex justify-between text-[9px] text-muted-foreground">
-                  <span>0 B</span>
-                  <span>Budget: {imageEstimation.budgetFormatted}</span>
-                  <span>Raw: {sourceMeta ? sourceMeta.fileSizeFormatted : "Source"}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Processing Indicator Overlay */}
-            {processing ? (
-              <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-[var(--radius-md)] bg-card/80 backdrop-blur-xs font-mono text-xs font-bold tracking-widest text-primary">
-                <span className="flex items-center gap-2 rounded border-2 border-border bg-secondary px-3 py-1.5 shadow-[2px_2px_0px_var(--color-border)]">
-                  <RefreshCw className="size-4 animate-spin" />
-                  COMPRESSING TO BUDGET...
-                </span>
-              </div>
-            ) : null}
-          </div>
-        </DeckExpander>
-      </div>
-
-      {/* Side-by-Side Source vs Optimized Cards & Actions Deck */}
-      <DeckExpander
-        id="deck-bench-comparison"
-        title="Bench-2 // Output Comparison & Action Deck"
-        subtitle="Side-by-side visual analysis, byte savings & export commands"
-        icon={<ImageIcon className="size-3.5" />}
-        badge={
-          output ? (
-            <Badge variant="signal" className="px-1.5 py-0 text-[8px] font-mono">
-              {formatFileSize(output.blob.size)} · READY
-            </Badge>
-          ) : null
-        }
-      >
-        <div className="space-y-3.5">
+      {/* Upfront Image Comparison Stage */}
+      {source ? (
+        <div className="mb-3.5 space-y-3">
           {/* Side-by-Side Source vs Optimized Cards */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {/* Source Card */}
@@ -635,70 +336,363 @@ export function ImageBench() {
             />
           </div>
 
-          {/* Action Command Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/50 pt-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {output ? (
-                <>
-                  <SaveLink blob={output.blob} filename={outputName}>
-                    <Download className="size-4" />
-                    Download ({formatFileSize(output.blob.size)})
-                  </SaveLink>
+          {/* Action Command Bar & Real-time Live Budget Gauge */}
+          <div className="rounded-[var(--radius-sm)] border border-border bg-card p-3 shadow-xs space-y-2.5">
+            {/* Primary Action Buttons */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                {output ? (
+                  <>
+                    <SaveLink blob={output.blob} filename={outputName}>
+                      <Download className="size-4 mr-1.5" />
+                      <span>Download ({formatFileSize(output.blob.size)})</span>
+                    </SaveLink>
 
-                  <Button asChild variant="outline" size="sm">
-                    <a href={output.objectUrl} target="_blank" rel="noopener">
-                      <ExternalLink className="size-3.5" />
-                      Full Preview
-                    </a>
+                    <Button asChild variant="outline" size="sm">
+                      <a href={output.objectUrl} target="_blank" rel="noopener">
+                        <ExternalLink className="size-3.5 mr-1" />
+                        Full Preview
+                      </a>
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="button" variant="success" size="sm" disabled>
+                    <Download className="size-4 mr-1.5" />
+                    Download Saved Still
                   </Button>
-                </>
-              ) : (
-                <Button type="button" variant="success" size="sm" disabled>
-                  <Download className="size-4" />
-                  Download Saved Still
-                </Button>
-              )}
+                )}
 
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!output}
-                onClick={() => void copyOutput()}
-                title="Copy optimized image to clipboard"
-              >
-                <Copy className="size-3.5" />
-                Copy
-              </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!output}
+                  onClick={() => void copyOutput()}
+                  title="Copy optimized image to clipboard"
+                  className="font-bold"
+                >
+                  <Copy className="size-3.5 mr-1" />
+                  Copy
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void process()}
+                  disabled={!source || processing}
+                  title="Re-run compression algorithm"
+                  className="text-xs"
+                >
+                  <RefreshCw className={cn("size-3.5 mr-1", processing && "animate-spin")} />
+                  Re-process
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearBench}
+                  disabled={!source && !output}
+                  className="text-xs"
+                >
+                  <RotateCcw className="size-3.5 mr-1" />
+                  Reset
+                </Button>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void process()}
-                disabled={!source || processing}
-                title="Re-run compression algorithm"
-              >
-                <RefreshCw className={cn("size-3.5", processing && "animate-spin")} />
-                Re-process
-              </Button>
+            {/* Visual 3-Stage Budget Comparison Meter & Specs */}
+            <div className="space-y-1.5 font-mono text-[11px]">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                  <Sparkles className="size-3.5 text-signal" />
+                  <span className="uppercase tracking-wide text-xs">Live Budget & Compression Gauge</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                  <span>Est. Output:</span>
+                  <span className="rounded-xs border border-signal bg-signal/15 px-2 py-0.5 text-xs font-bold text-foreground">
+                    ~{imageEstimation.estimatedFormatted}
+                  </span>
+                  <span className="rounded-xs border border-success/30 bg-success/15 px-1.5 py-0.5 text-[10px] font-bold text-success">
+                    -{imageEstimation.savingsPct}% Saved
+                  </span>
+                </div>
+              </div>
 
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={clearBench}
-                disabled={!source && !output}
-              >
-                <RotateCcw className="size-3.5" />
-                Reset
-              </Button>
+              {/* Specs Line */}
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-muted-foreground pt-1">
+                <span>
+                  Budget: <strong className="text-foreground">{settings.targetKb} KB</strong> | Target Res: <strong className="text-foreground">{imageEstimation.targetWidth}×{imageEstimation.targetHeight} px</strong> ({imageEstimation.estimatedBppFormatted}) | Format: <strong className="text-foreground">{imageEstimation.targetFormat}</strong>
+                </span>
+                <span className={output && output.blob.size <= settings.targetKb * 1024 ? "text-success font-bold" : "text-signal font-bold"}>
+                  {output ? (output.blob.size <= settings.targetKb * 1024 ? "✔ On Budget" : "⚡ Quality Priority") : "Live Estimating"}
+                </span>
+              </div>
+
+              {/* Gauge Bar */}
+              <div className="relative h-2 w-full overflow-hidden rounded-full bg-secondary border border-border/80">
+                <div
+                  className="absolute top-0 bottom-0 bg-signal/25 border-r-2 border-signal z-10"
+                  style={{
+                    width: `${Math.min(100, Math.max(10, source ? (imageEstimation.budgetBytes / source.fileSize) * 100 : 50))}%`,
+                  }}
+                  title={`Budget Cap: ${imageEstimation.budgetFormatted}`}
+                />
+                <div
+                  className="h-full bg-primary transition-all z-20"
+                  style={{
+                    width: `${Math.min(100, Math.max(5, source ? ((output ? output.blob.size : imageEstimation.estimatedBytes) / source.fileSize) * 100 : 25))}%`,
+                  }}
+                  title={`Output Size: ${output ? formatFileSize(output.blob.size) : imageEstimation.estimatedFormatted}`}
+                />
+              </div>
+
+              <div className="flex justify-between text-[9px] text-muted-foreground">
+                <span>0 B</span>
+                <span>Budget: {imageEstimation.budgetFormatted}</span>
+                <span>Raw: {sourceMeta ? sourceMeta.fileSizeFormatted : "Source"}</span>
+              </div>
             </div>
           </div>
         </div>
-      </DeckExpander>
+      ) : null}
+
+      {/* Segmented Tool Inspector Drawer for Bench Parameters */}
+      <div className={cn("rounded-[var(--radius-sm)] border border-border bg-card/90 shadow-xs overflow-hidden", !source && "pointer-events-none opacity-40")}>
+        {/* Drawer Header Switcher */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-secondary/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground mr-1 hidden sm:inline">
+              Optimizer Tools:
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeBenchTab === "budget" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeBenchTab === "budget" && "shadow-xs")}
+              onClick={() => setActiveBenchTab(activeBenchTab === "budget" ? "none" : "budget")}
+            >
+              <Sparkles className="size-3.5" />
+              <span>Budget & Quality</span>
+              <span className="ml-0.5 rounded-xs bg-secondary border border-border px-1 text-[8px] font-bold">
+                {settings.targetKb} KB · {settings.format.toUpperCase()}
+              </span>
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant={activeBenchTab === "transform" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeBenchTab === "transform" && "shadow-xs")}
+              onClick={() => setActiveBenchTab(activeBenchTab === "transform" ? "none" : "transform")}
+            >
+              <Sliders className="size-3.5" />
+              <span>Framing & Transform</span>
+              {hasActiveTransform(benchTransform) ? (
+                <span className="ml-0.5 rounded-xs bg-signal/20 px-1 text-[8px] font-bold text-signal">
+                  ACTIVE
+                </span>
+              ) : null}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[10px] font-mono font-bold text-muted-foreground hover:text-foreground"
+              onClick={() => setActiveBenchTab(activeBenchTab === "none" ? "budget" : "none")}
+            >
+              {activeBenchTab === "none" ? (
+                <>
+                  <ChevronDown className="size-3.5 mr-1" />
+                  <span>Open Drawer</span>
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="size-3.5 mr-1" />
+                  <span>Collapse</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Drawer Body */}
+        {activeBenchTab !== "none" ? (
+          <div className="p-3 bg-card space-y-3">
+            {activeBenchTab === "budget" && (
+              <div className="space-y-3.5">
+                {/* Quick Aspect Ratio Chips */}
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
+                      1. Aspect Ratio / Framing Preset:
+                    </Label>
+                    <span className="font-mono text-[11px] font-bold text-primary">
+                      {CROP_PRESETS.find((p) => p.id === settings.cropPreset)?.label}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {QUICK_ASPECTS.map((asp) => {
+                      const active = settings.cropPreset === asp.id;
+                      return (
+                        <Button
+                          key={asp.id}
+                          type="button"
+                          size="sm"
+                          variant={active ? "primary" : "outline"}
+                          onClick={() => {
+                            setSettings({ cropPreset: asp.id });
+                            setBenchTransform({ cropPreset: asp.id });
+                          }}
+                          className="h-7 px-2 text-[10px] font-bold"
+                        >
+                          {asp.label}
+                        </Button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Custom Dimensions If Selected */}
+                {settings.cropPreset === "custom" ? (
+                  <div className="rounded-[var(--radius-sm)] border border-border bg-secondary/50 p-2.5">
+                    <Label className="mb-1.5 block font-mono text-[11px] font-bold uppercase text-foreground">
+                      Custom Pixel Dimensions (Width × Height)
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={50}
+                        max={4096}
+                        placeholder="Width"
+                        value={settings.customWidth}
+                        onChange={(e) => setSettings({ customWidth: e.target.value })}
+                        className="w-28 font-mono text-xs"
+                      />
+                      <span className="font-bold text-foreground">×</span>
+                      <Input
+                        type="number"
+                        min={50}
+                        max={4096}
+                        placeholder="Height"
+                        value={settings.customHeight}
+                        onChange={(e) => setSettings({ customHeight: e.target.value })}
+                        className="w-28 font-mono text-xs"
+                      />
+                      <span className="font-mono text-[11px] text-muted-foreground">px</span>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Target Budget & Quality Sliders */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {/* Target KB Slider & Quick Chips */}
+                  <div className="rounded-[var(--radius-sm)] border border-border bg-secondary/30 p-2.5">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
+                        2. Target Budget:
+                      </Label>
+                      <span className="rounded-xs border border-signal/50 bg-signal/15 px-1.5 py-0.2 font-mono text-xs font-bold text-foreground">
+                        {settings.targetKb} KB
+                      </span>
+                    </div>
+
+                    <Slider
+                      min={20}
+                      max={600}
+                      step={5}
+                      value={[settings.targetKb]}
+                      onValueChange={([v]) => setSettings({ targetKb: v ?? 175 })}
+                    />
+
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {QUICK_BUDGETS.map((kb) => (
+                        <Button
+                          key={kb}
+                          type="button"
+                          size="sm"
+                          variant={settings.targetKb === kb ? "signal" : "outline"}
+                          onClick={() => setSettings({ targetKb: kb })}
+                          className="h-6 px-1.5 text-[9px] font-bold"
+                        >
+                          {kb}K
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Quality & Format Block */}
+                  <div className="rounded-[var(--radius-sm)] border border-border bg-secondary/30 p-2.5">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <Label className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
+                        3. Quality & Format:
+                      </Label>
+                      <span className="font-mono text-xs font-bold text-foreground">
+                        {Math.round(settings.quality * 100)}%
+                      </span>
+                    </div>
+
+                    <Slider
+                      min={10}
+                      max={100}
+                      step={5}
+                      value={[Math.round(settings.quality * 100)]}
+                      onValueChange={([v]) => setSettings({ quality: (v ?? 85) / 100 })}
+                    />
+
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="font-mono text-[10px] font-bold uppercase text-muted-foreground">Format:</span>
+                      <Select
+                        value={settings.format}
+                        onValueChange={(value) => setSettings({ format: value as OutputFormat })}
+                      >
+                        <SelectTrigger className="h-7 text-[11px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {FORMAT_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.id} value={opt.id}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeBenchTab === "transform" && (
+              <TransformControls
+                transform={{
+                  ...benchTransform,
+                  cropPreset: settings.cropPreset,
+                }}
+                onChange={(partial) => {
+                  if (partial.cropPreset !== undefined) {
+                    setSettings({ cropPreset: partial.cropPreset });
+                  }
+                  setBenchTransform(partial);
+                }}
+                onReset={() => {
+                  resetBenchTransform();
+                  setSettings({ cropPreset: "none" });
+                  toast("Bench transforms reset");
+                }}
+                title="Transform Calibration"
+                disabled={!source}
+              />
+            )}
+          </div>
+        ) : null}
+      </div>
     </Panel>
   );
 }
@@ -788,7 +782,7 @@ function PreviewCard({
   }, [containerRef]);
 
   return (
-    <div className="flex flex-col rounded-[var(--radius-sm)] border-2 border-border bg-card p-3 shadow-[2px_2px_0px_var(--color-border)]">
+    <div className="flex flex-col rounded-[var(--radius-sm)] border border-border/80 bg-card p-3 shadow-xs">
       {/* Card Header */}
       <div className="mb-2 flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5 min-w-0">
@@ -946,7 +940,7 @@ function PreviewCard({
           }
         }}
         className={cn(
-          "checkerboard relative mb-2.5 flex h-48 items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border-2 border-border select-none touch-none",
+          "checkerboard relative mb-2.5 flex h-64 sm:h-80 md:h-96 xl:h-[380px] items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-border/80 select-none touch-none",
           isSourceInteractive && transform && transform.zoom > 1
             ? isPanning
               ? "cursor-grabbing"

@@ -73,7 +73,7 @@ export function TransformControls({
   return (
     <div
       className={cn(
-        "rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 p-3 shadow-[2px_2px_0px_var(--color-border)] select-none",
+        "rounded-[var(--radius-sm)] border border-border/80 bg-secondary/30 p-3 shadow-xs select-none",
         disabled && "pointer-events-none opacity-40",
       )}
     >

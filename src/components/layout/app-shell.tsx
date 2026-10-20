@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Film, Image as ImageIcon, LayoutGrid, Music, ShieldCheck, Sparkles } from "lucide-react";
+import { Film, Image as ImageIcon, LayoutGrid, Music, ShieldCheck } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { ExpanderStorageControls } from "@/components/layout/deck-expander";
 import { KeyboardShortcutsDialog } from "@/components/layout/keyboard-dialog";
@@ -36,31 +36,31 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-dvh flex-col overflow-x-clip bg-background">
-      {/* Top Retro Header */}
-      <header className="sticky top-0 z-40 border-b-2 border-border bg-card/95 backdrop-blur-xs">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2.5">
+      {/* Studio Header */}
+      <header className="sticky top-0 z-40 border-b border-border/80 bg-card/95 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1720px] w-full flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 sm:px-4 lg:px-6 py-2">
           {/* Brand Logo */}
           <Link to="/" className="flex min-w-0 items-center gap-2.5 no-underline group">
-            <span className="grid size-9 shrink-0 place-items-center rounded-[var(--radius-sm)] border-2 border-border bg-signal text-foreground shadow-[2px_2px_0px_var(--color-border)] group-hover:translate-x-[1px] group-hover:translate-y-[1px] group-hover:shadow-[1px_1px_0px_var(--color-border)] transition-all">
+            <span className="grid size-8 shrink-0 place-items-center rounded-[var(--radius-sm)] border border-border bg-signal text-foreground shadow-xs group-hover:bg-signal/90 transition-colors">
               <RetroCassetteIcon />
             </span>
             <div className="leading-tight">
               <div className="flex items-center gap-1.5">
-                <span className="font-mono text-sm font-bold tracking-[0.14em] text-foreground">
+                <span className="font-mono text-sm font-bold tracking-[0.12em] text-foreground">
                   MEDIA TOOL
                 </span>
-                <span className="rounded-xs bg-primary px-1 py-0.2 font-mono text-[9px] font-bold text-primary-foreground uppercase tracking-widest">
-                  VCR-77
+                <span className="rounded-xs bg-primary/20 border border-primary/40 px-1 py-0.2 font-mono text-[9px] font-bold text-primary uppercase tracking-widest">
+                  PRO STUDIO
                 </span>
               </div>
-              <span className="hidden font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground sm:block">
-                Video · Audio · Stills · Optimizer
+              <span className="hidden font-mono text-[10px] text-muted-foreground sm:block tracking-wide">
+                Video · Audio · Frame Snap · Image Optimizer
               </span>
             </div>
           </Link>
 
           {/* Navigation Mode Switcher */}
-          <nav className="flex items-center gap-1.5 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/60 p-1 shadow-[2px_2px_0px_var(--color-border)]">
+          <nav className="flex items-center gap-1 rounded-[var(--radius-sm)] border border-border/80 bg-secondary/50 p-1">
             {NAV.map((item) => {
               const active = pathname === item.to;
               const Icon = item.icon;
@@ -69,61 +69,54 @@ export function AppShell({ children }: { children: ReactNode }) {
                   key={item.to}
                   to={item.to}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-[var(--radius-sm)] px-2.5 py-1 font-mono text-xs font-bold uppercase tracking-wider transition-all",
+                    "flex items-center gap-1.5 rounded-xs px-2.5 py-1 font-mono text-xs font-semibold tracking-wide transition-all",
                     active
-                      ? "border border-border bg-primary text-primary-foreground shadow-[1px_1px_0px_var(--color-border)]"
+                      ? "bg-primary text-primary-foreground shadow-xs font-bold"
                       : "text-muted-foreground hover:bg-card hover:text-foreground",
                   )}
                 >
                   <Icon className="size-3.5" />
-                  <span className="hidden md:inline">{item.label}</span>
+                  <span className="hidden sm:inline">{item.label}</span>
                 </Link>
               );
             })}
           </nav>
 
           {/* Header Controls */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <div className="hidden xl:block">
+              <ExpanderStorageControls />
+            </div>
             <ThemeSwitch />
             <UiZoomControl />
             <KeyboardShortcutsDialog />
 
-            <div className="flex items-center gap-1 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/80 px-2 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground shadow-[1px_1px_0px_var(--color-border)]">
+            <div className="hidden sm:flex items-center gap-1 rounded-xs border border-border/60 bg-secondary/60 px-2 py-1 font-mono text-[10px] font-semibold text-muted-foreground">
               <ShieldCheck className="size-3.5 text-success" />
-              <span className="hidden sm:inline">100% On-Device</span>
+              <span>100% On-Device</span>
             </div>
           </div>
         </div>
       </header>
 
       {/* Main Container */}
-      <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-4 px-4 py-5">
-        {/* Workflow Quick-Tip Banner & Global Deck Storage Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-sm)] border-2 border-border bg-secondary/50 px-3 py-2 font-mono text-xs text-muted-foreground shadow-[2px_2px_0px_var(--color-border)]">
-          <div className="flex items-center gap-2">
-            <Sparkles className="size-4 text-signal shrink-0" />
-            <span>
-              <strong className="text-foreground">Workflow:</strong> Drop video ➜ Press <kbd className="rounded-xs border border-border bg-card px-1.5 py-0.5 text-[10px] font-bold text-foreground">S</kbd> to snap ➜ Pick crop & budget ➜ Download / Copy.
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ExpanderStorageControls />
-          </div>
-        </div>
-
+      <main className="mx-auto flex w-full max-w-[1720px] flex-1 flex-col gap-3.5 px-3 sm:px-4 lg:px-6 py-3 sm:py-4">
         {children}
       </main>
 
-      {/* Retro Footer */}
-      <footer className="mt-8 border-t-2 border-border bg-card/60">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-4 py-3 text-xs font-mono text-muted-foreground">
+      {/* Studio Footer */}
+      <footer className="mt-8 border-t border-border/60 bg-card/40">
+        <div className="mx-auto flex max-w-[1720px] flex-wrap items-center justify-between gap-4 px-3 sm:px-4 lg:px-6 py-2.5 text-xs font-mono text-muted-foreground">
           <p className="flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-success" />
-            <strong className="font-bold text-foreground">Client-Side Engine:</strong> All video decoding and image compression run locally on your device hardware.
+            <span className="size-1.5 rounded-full bg-success" />
+            <span className="font-semibold text-foreground">Hardware Accelerated:</span> Video decoding, audio DSP graph & image compression run 100% locally on your machine.
           </p>
-          <p className="text-[11px] uppercase tracking-wider">
-            Retro Web Design Edition // 2026
-          </p>
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="xl:hidden">
+              <ExpanderStorageControls />
+            </span>
+            <span>Studio Engine 2026</span>
+          </div>
         </div>
       </footer>
     </div>

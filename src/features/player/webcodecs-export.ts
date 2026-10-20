@@ -287,6 +287,7 @@ export async function exportVideoWebCodecs({
   video.muted = true;
   video.preload = "auto";
   video.src = sourceUrl;
+  let videoEncoder: VideoEncoder | null = null;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -480,7 +481,7 @@ export async function exportVideoWebCodecs({
   let _encodedChunksCount = 0;
   let encoderError: Error | null = null;
 
-  const videoEncoder = new VideoEncoder({
+  videoEncoder = new VideoEncoder({
     output: (chunk, meta) => {
       _encodedChunksCount++;
       // Interleave audio chunks up to the timestamp of the arriving video chunk
@@ -772,7 +773,7 @@ export async function exportVideoWebCodecs({
       // ignore
     }
     try {
-      if (videoEncoder.state !== "closed") {
+      if (videoEncoder && videoEncoder.state !== "closed") {
         videoEncoder.close();
       }
     } catch {

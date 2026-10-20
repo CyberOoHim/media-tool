@@ -187,11 +187,11 @@ export function updateLiveDspGraph({
     activeNodes.highMid.gain.setTargetAtTime(0, now, 0.02);
     activeNodes.air.gain.setTargetAtTime(0, now, 0.02);
   } else {
-    activeNodes.sub.gain.setTargetAtTime(eq.sub, now, 0.02);
-    activeNodes.low.gain.setTargetAtTime(eq.low, now, 0.02);
-    activeNodes.mid.gain.setTargetAtTime(eq.mid, now, 0.02);
-    activeNodes.highMid.gain.setTargetAtTime(eq.highMid, now, 0.02);
-    activeNodes.air.gain.setTargetAtTime(eq.air, now, 0.02);
+    activeNodes.sub.gain.setTargetAtTime(eq.low80Hz, now, 0.02);
+    activeNodes.low.gain.setTargetAtTime(eq.lowMid300Hz, now, 0.02);
+    activeNodes.mid.gain.setTargetAtTime(eq.mid1kHz, now, 0.02);
+    activeNodes.highMid.gain.setTargetAtTime(eq.highMid3kHz, now, 0.02);
+    activeNodes.air.gain.setTargetAtTime(eq.high10kHz, now, 0.02);
   }
 
   // 3. High Cut

@@ -29,27 +29,28 @@ export function Panel({
       onMouseEnter={onMouseEnter}
       onClick={onClick}
       className={cn(
-        "relative flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-md)] border-2 border-border bg-card shadow-[4px_4px_0px_var(--color-border)] transition-all",
-        isFocused && "ring-2 ring-signal ring-offset-2 ring-offset-background shadow-[5px_5px_0px_var(--color-signal)]",
+        "relative flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-md)] border border-border bg-card/95 shadow-xs transition-all",
+        isFocused
+          ? "ring-1 ring-signal/80 border-signal/60 shadow-[0_0_16px_rgba(216,177,104,0.12)]"
+          : "hover:border-border/90",
         className,
       )}
     >
-      {/* Retro Window Titlebar */}
-      <header className="flex select-none items-center justify-between gap-3 border-b-2 border-border bg-secondary/80 px-3 py-2">
-        <div className="flex items-center gap-2">
-          {/* Retro Window Dots */}
-          <div className="flex items-center gap-1.5" aria-hidden="true">
-            <span className="size-2.5 rounded-full border border-border bg-destructive" />
-            <span className="size-2.5 rounded-full border border-border bg-signal" />
-            <span className="size-2.5 rounded-full border border-border bg-success" />
+      {/* Studio Window Titlebar */}
+      <header className="flex select-none items-center justify-between gap-3 border-b border-border/80 bg-secondary/70 px-3.5 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Subtle hardware status LED dots */}
+          <div className="flex items-center gap-1 opacity-70" aria-hidden="true">
+            <span className="size-2 rounded-full bg-border" />
+            <span className="size-2 rounded-full bg-border" />
           </div>
-          <span className="mx-1 h-3.5 w-[2px] bg-border/40" />
-          <h2 className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-foreground">
+          <span className="h-3 w-[1px] bg-border/60" />
+          <h2 className="font-mono text-xs font-bold uppercase tracking-wider text-foreground truncate">
             {title}
           </h2>
           {isFocused ? (
             <span
-              className="inline-flex items-center gap-1 rounded-sm border border-signal bg-signal/20 px-1.5 py-0.2 font-mono text-[9px] font-bold text-signal uppercase tracking-wider animate-in fade-in"
+              className="inline-flex items-center gap-1 rounded-xs border border-signal/40 bg-signal/15 px-1.5 py-0.5 font-mono text-[9px] font-bold text-signal uppercase tracking-wider animate-in fade-in"
               title="Keyboard shortcuts are actively routed to this deck"
             >
               <span className="size-1.5 rounded-full bg-signal animate-ping" />
@@ -59,24 +60,24 @@ export function Panel({
           {status ? (
             <span
               className={cn(
-                "inline-flex items-center gap-1 rounded-sm border border-border px-1.5 py-0.2 font-mono text-[9px] font-bold uppercase tracking-wider",
-                statusVariant === "success" && "bg-success text-success-foreground",
-                statusVariant === "signal" && "bg-signal text-signal-foreground",
-                statusVariant === "destructive" && "bg-destructive text-destructive-foreground",
-                statusVariant === "default" && "bg-card text-foreground",
+                "inline-flex items-center gap-1 rounded-xs border px-1.5 py-0.5 font-mono text-[9px] font-bold uppercase tracking-wider",
+                statusVariant === "success" && "border-success/40 bg-success/15 text-success",
+                statusVariant === "signal" && "border-signal/40 bg-signal/15 text-signal",
+                statusVariant === "destructive" && "border-destructive/40 bg-destructive/15 text-destructive",
+                statusVariant === "default" && "border-border/60 bg-secondary text-muted-foreground",
               )}
             >
-              <span className="size-1.5 rounded-full bg-current animate-pulse" />
+              <span className="size-1.5 rounded-full bg-current" />
               {status}
             </span>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-2">{action}</div>
+        <div className="flex shrink-0 items-center gap-2">{action}</div>
       </header>
 
       {/* Panel Body */}
-      <div className={cn("flex min-h-0 flex-1 flex-col p-4", bodyClassName)}>{children}</div>
+      <div className={cn("flex min-h-0 flex-1 flex-col p-3 sm:p-3.5", bodyClassName)}>{children}</div>
     </section>
   );
 }

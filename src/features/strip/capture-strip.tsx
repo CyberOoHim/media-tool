@@ -152,8 +152,8 @@ export function CaptureStrip() {
       }
     >
       {captures.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--radius-sm)] border-2 border-dashed border-border bg-secondary/30 py-8 text-center">
-          <div className="grid size-10 place-items-center rounded-full border-2 border-border bg-card">
+        <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--radius-sm)] border border-dashed border-border/80 bg-secondary/30 py-8 text-center">
+          <div className="grid size-10 place-items-center rounded-full border border-border bg-card">
             <Film className="size-5 text-muted-foreground" />
           </div>
           <div>
@@ -166,7 +166,7 @@ export function CaptureStrip() {
           </div>
         </div>
       ) : (
-        <div className="relative rounded-[var(--radius-sm)] border-2 border-border bg-theater p-2.5 shadow-inner">
+        <div className="relative rounded-[var(--radius-sm)] border border-border/80 bg-theater p-2.5 shadow-xs">
           {/* Top Filmstrip Sprockets */}
           <div className="filmstrip-sprockets mb-2 h-3.5 w-full border-b border-border/40" />
 
@@ -202,15 +202,15 @@ export function CaptureStrip() {
                         if (pathname === "/player") void navigate({ to: "/bench" });
                       }}
                       className={cn(
-                        "group block w-full overflow-hidden rounded-[var(--radius-sm)] border-2 bg-card text-left transition-all relative",
+                        "group block w-full overflow-hidden rounded-[var(--radius-sm)] border bg-card text-left transition-all relative",
                         active
-                          ? "border-signal shadow-[3px_3px_0px_var(--color-signal)] scale-[1.01]"
+                          ? "border-signal ring-1 ring-signal shadow-xs scale-[1.01]"
                           : isTrimStart || isTrimEnd
-                            ? "border-primary shadow-[2px_2px_0px_var(--color-primary)]"
-                            : "border-border shadow-[2px_2px_0px_var(--color-border)] hover:border-foreground/80 hover:translate-y-[-1px]",
+                            ? "border-primary ring-1 ring-primary shadow-xs"
+                            : "border-border/80 shadow-xs hover:border-foreground/80 hover:translate-y-[-1px]",
                       )}
                     >
-                      <div className="checkerboard relative h-24 w-full overflow-hidden">
+                      <div className="checkerboard relative h-28 w-full overflow-hidden">
                         <img
                           src={item.objectUrl}
                           alt={item.fileName}

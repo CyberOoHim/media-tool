@@ -50,7 +50,7 @@ export function DeckExpander({
       id={id}
       data-state={isOpen ? "open" : "collapsed"}
       className={cn(
-        "group relative rounded-[var(--radius-sm)] border-2 border-border bg-card shadow-[2px_2px_0px_var(--color-border)] transition-all",
+        "group relative rounded-[var(--radius-sm)] border border-border/80 bg-card shadow-xs transition-all",
         isOpen ? "border-border" : "border-border/80 bg-card/90",
         disabled && "opacity-60",
         className,
@@ -59,7 +59,7 @@ export function DeckExpander({
       {/* Expander Header Bar */}
       <div
         className={cn(
-          "flex select-none items-center justify-between gap-2 border-b-2 border-border/40 px-3 py-2 transition-colors",
+          "flex select-none items-center justify-between gap-2 border-b border-border/60 px-3 py-2 transition-colors",
           !isOpen && "border-b-0",
           isOpen ? "bg-secondary/60" : "bg-secondary/30 hover:bg-secondary/50",
           headerClassName,

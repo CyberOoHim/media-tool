@@ -353,7 +353,7 @@ export function TrimControls({
         disabled={disabled}
       >
         {/* Source Video Metadata Inspector Ribbon */}
-        <div className="rounded-[var(--radius-sm)] border-2 border-border bg-card p-2.5 font-mono text-[11px] space-y-2">
+        <div className="rounded-[var(--radius-sm)] border border-border/80 bg-card p-2.5 font-mono text-[11px] space-y-2 shadow-xs">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
             <div className="flex items-center gap-1.5 font-bold text-foreground">
               <span className="rounded-xs bg-primary px-1.5 py-0.2 text-[9px] font-bold text-primary-foreground uppercase">
@@ -412,10 +412,10 @@ export function TrimControls({
           {/* IN Point (Start) Box */}
           <div
             className={cn(
-              "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
+              "rounded-[var(--radius-sm)] border p-3 transition-all shadow-xs",
               trimStart !== null
-                ? "border-signal bg-signal/5 shadow-[2px_2px_0px_var(--color-signal)]"
-                : "border-border bg-secondary/30",
+                ? "border-signal bg-signal/5 ring-1 ring-signal"
+                : "border-border/80 bg-secondary/30",
             )}
           >
             <div className="flex items-center justify-between text-xs font-mono">
@@ -474,10 +474,10 @@ export function TrimControls({
           {/* OUT Point (End) Box */}
           <div
             className={cn(
-              "rounded-[var(--radius-sm)] border-2 p-3 transition-all",
+              "rounded-[var(--radius-sm)] border p-3 transition-all shadow-xs",
               trimEnd !== null
-                ? "border-destructive bg-destructive/5 shadow-[2px_2px_0px_var(--color-destructive)]"
-                : "border-border bg-secondary/30",
+                ? "border-destructive bg-destructive/5 ring-1 ring-destructive"
+                : "border-border/80 bg-secondary/30",
             )}
           >
             <div className="flex items-center justify-between text-xs font-mono">

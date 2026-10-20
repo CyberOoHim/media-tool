@@ -1,10 +1,13 @@
 import {
   Camera,
+  ChevronDown,
+  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
   Copy,
   Eye,
   FastForward,
+  Gauge,
   Layers,
   Maximize,
   Music,
@@ -23,7 +26,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { DeckExpander } from "@/components/layout/deck-expander";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
 import { TransformControls } from "@/components/media/transform-controls";
@@ -99,6 +101,8 @@ export function VideoPlayer() {
   const [minutes, setMinutes] = useState("");
   const [seconds, setSeconds] = useState("");
   const progressRef = useRef<HTMLDivElement>(null);
+
+  const [activeToolTab, setActiveToolTab] = useState<"trim" | "transform" | "speed" | "none">("trim");
 
   // Transform State for Video
   const [videoTransform, setVideoTransform] = useState<TransformState>(DEFAULT_TRANSFORM);
@@ -652,12 +656,12 @@ export function VideoPlayer() {
       }
     >
       {/* Video Screen Bezel */}
-      <div className="relative overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-theater shadow-inner">
+      <div className="relative overflow-hidden rounded-[var(--radius-sm)] border border-border/80 bg-theater shadow-xs">
         {videoSession ? (
           <div
             ref={videoContainerRef}
             className={cn(
-              "relative flex min-h-[240px] items-center justify-center overflow-hidden lg:min-h-[340px] select-none touch-none",
+              "relative flex min-h-[300px] sm:min-h-[380px] lg:min-h-[460px] xl:min-h-[520px] items-center justify-center overflow-hidden select-none touch-none",
               videoTransform.zoom > 1 || isPanning
                 ? isPanning
                   ? "cursor-grabbing"
@@ -1000,7 +1004,7 @@ export function VideoPlayer() {
                 transformOrigin: "center center",
                 transition: isPanning ? "none" : "transform 120ms ease-out",
               }}
-              className="max-h-[50vh] w-full bg-black object-contain lg:max-h-[56vh]"
+              className="max-h-[58vh] xl:max-h-[66vh] w-full bg-black object-contain"
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
               onEnded={() => {
@@ -1562,211 +1566,268 @@ export function VideoPlayer() {
         </div>
       </div>
 
-      {/* Hardware WebCodecs Video Cut & Trim Deck Component (Wrapped in DeckExpander) */}
-      <div className="mt-3.5">
-        <TrimControls
-          currentSec={current}
-          durationSec={duration}
-          onSeek={jumpTo}
+      {/* Primary Capture Action Bar (Directly accessible without scrolling) */}
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <Button
+          type="button"
+          variant="success"
+          size="default"
           disabled={disabled}
-          videoDims={videoDims}
-          activeTransform={videoTransform}
-        />
+          onClick={() => void capture()}
+          className="h-10 gap-2 font-bold shadow-xs text-xs sm:text-sm touch-manipulation active:scale-95"
+        >
+          <Camera className="size-4" />
+          <span>Snap Frame (S)</span>
+        </Button>
+
+        <Button
+          type="button"
+          variant="accent"
+          size="default"
+          disabled={disabled}
+          onClick={() => void burstCapture()}
+          className="h-10 gap-2 font-bold shadow-xs text-xs sm:text-sm touch-manipulation active:scale-95"
+          title="Capture 3 frames in quick succession (Shift+S)"
+        >
+          <Layers className="size-4" />
+          <span>Burst 3× (Shift+S)</span>
+        </Button>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="default"
+          disabled={disabled}
+          onClick={() => void copyFrame()}
+          className="h-10 gap-2 font-bold shadow-xs text-xs sm:text-sm touch-manipulation active:scale-95"
+          title="Copy current still to clipboard (C)"
+        >
+          <Copy className="size-4" />
+          <span>Copy Still (C)</span>
+        </Button>
       </div>
 
-      {/* Deck Transform Toolbar (Zoom, Pan, Rotate, Flip, Crop) */}
-      <div className="mt-3.5">
-        <DeckExpander
-          id="deck-video-transform"
-          title="Deck-1 // Video Framing & Transform Deck"
-          subtitle="Zoom, Pan, Rotate, Mirror Flip & Aspect Ratio Calibration"
-          icon={<Sliders className="size-3.5" />}
-          badge={
-            hasActiveTransform(videoTransform) ? (
-              <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
-                ACTIVE TRANSFORM
-              </Badge>
-            ) : null
-          }
-          disabled={disabled}
-        >
-          <TransformControls
-            transform={videoTransform}
-            onChange={(partial) => setVideoTransform((prev) => ({ ...prev, ...partial }))}
-            onReset={() => {
-              setVideoTransform(DEFAULT_TRANSFORM);
-              toast("Deck transforms reset");
-            }}
-            title="Transform & Crop Framing"
-            disabled={disabled}
-            bakeToggle={{
-              enabled: bakeTransformOnCapture,
-              onToggle: (val) => setBakeTransformOnCapture(val),
-            }}
-          />
-        </DeckExpander>
-      </div>
-
-      {/* Capture Action Bar & Transport Deck (Snap, Burst, Speed, Jump TC) */}
-      <div className="mt-3.5">
-        <DeckExpander
-          id="deck-video-transport"
-          title="Deck-1 // Capture Actions & Timecode Transport"
-          subtitle="High-speed frame capture, variable playback rates & direct jump"
-          icon={<Camera className="size-3.5" />}
-          disabled={disabled}
-        >
-          <div className="space-y-3">
-            {/* Capture Action Bar (Snap, Burst, Copy) */}
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-              <Button
-                type="button"
-                variant="success"
-                size="default"
-                disabled={disabled}
-                onClick={() => void capture()}
-                className="h-11 gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] text-sm touch-manipulation active:scale-95"
-              >
-                <Camera className="size-4.5" />
-                Snap Frame (S)
-              </Button>
-
-              <Button
-                type="button"
-                variant="accent"
-                size="default"
-                disabled={disabled}
-                onClick={() => void burstCapture()}
-                className="h-11 gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] text-sm touch-manipulation active:scale-95"
-                title="Capture 3 frames in quick succession"
-              >
-                <Layers className="size-4.5" />
-                Burst 3× (Shift+S)
-              </Button>
-
-              <Button
-                type="button"
-                variant="outline"
-                size="default"
-                disabled={disabled}
-                onClick={() => void copyFrame()}
-                className="h-11 gap-2 font-bold shadow-[3px_3px_0px_var(--color-border)] text-sm touch-manipulation active:scale-95"
-              >
-                <Copy className="size-4.5" />
-                Copy Still (C)
-              </Button>
-            </div>
-
-            {/* Speed Selector & Direct Jump Row */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-t border-border/50 pt-3">
-              {/* Speed Selector Dropdown, Chips & Fine Control */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Deck Speed:
+      {/* Segmented Tool Inspector Drawer */}
+      <div className="mt-3.5 rounded-[var(--radius-sm)] border border-border bg-card/90 shadow-xs overflow-hidden">
+        {/* Drawer Segmented Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-secondary/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground mr-1 hidden sm:inline">
+              Tool Drawer:
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeToolTab === "trim" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeToolTab === "trim" && "shadow-xs")}
+              onClick={() => setActiveToolTab(activeToolTab === "trim" ? "none" : "trim")}
+            >
+              <Scissors className="size-3.5" />
+              <span>Trim & Export</span>
+              {trimStart !== null || trimEnd !== null ? (
+                <span className="ml-0.5 rounded-xs bg-signal/20 px-1 text-[8px] font-bold text-signal">
+                  ACTIVE
                 </span>
-                <SpeedDropdown
-                  rate={rate}
-                  onRateChange={applyRate}
-                  disabled={disabled}
-                  className="w-28 sm:w-32"
-                />
-                <SpeedControl
-                  rate={rate}
-                  onRateChange={applyRate}
-                  disabled={disabled}
-                  pitchPreserve={pitchPreserve}
-                  onPitchPreserveChange={togglePitchPreserve}
-                />
-                <div className="flex flex-wrap gap-1.5">
-                  {COMMON_PLAYBACK_RATES.map((r) => (
-                    <Button
-                      key={r}
-                      size="sm"
-                      variant={Math.abs(rate - r) < 0.001 ? "signal" : "outline"}
-                      disabled={disabled}
-                      onClick={() => applyRate(r)}
-                      className="h-8 min-w-10 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"
-                    >
-                      {r}×
-                    </Button>
-                  ))}
-                </div>
-              </div>
+              ) : null}
+            </Button>
 
-              {/* Jump To Direct Timecode */}
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Jump TC:
+            <Button
+              type="button"
+              size="sm"
+              variant={activeToolTab === "transform" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeToolTab === "transform" && "shadow-xs")}
+              onClick={() => setActiveToolTab(activeToolTab === "transform" ? "none" : "transform")}
+            >
+              <Sliders className="size-3.5" />
+              <span>Framing & Crop</span>
+              {hasActiveTransform(videoTransform) ? (
+                <span className="ml-0.5 rounded-xs bg-signal/20 px-1 text-[8px] font-bold text-signal">
+                  ACTIVE
                 </span>
-                <div className="flex items-center gap-1.5">
-                  <TimeField
-                    value={hours}
-                    placeholder="00"
-                    disabled={disabled}
-                    max={99}
-                    onChange={setHours}
-                    onEnter={gotoTyped}
-                  />
-                  <span className="font-bold text-muted-foreground">:</span>
-                  <TimeField
-                    value={minutes}
-                    placeholder="00"
-                    disabled={disabled}
-                    max={59}
-                    onChange={setMinutes}
-                    onEnter={gotoTyped}
-                  />
-                  <span className="font-bold text-muted-foreground">:</span>
-                  <TimeField
-                    value={seconds}
-                    placeholder="00"
-                    disabled={disabled}
-                    max={59}
-                    onChange={setSeconds}
-                    onEnter={gotoTyped}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="primary"
-                    disabled={disabled}
-                    onClick={gotoTyped}
-                    className="h-8 px-2.5 text-xs font-bold font-mono touch-manipulation active:scale-95 ml-1"
-                  >
-                    Go
-                  </Button>
-                </div>
-              </div>
-            </div>
+              ) : null}
+            </Button>
 
-            {/* Video Technical Specs Ribbon */}
-            {videoSession ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
-                <div className="flex items-center gap-3">
-                  <span>
-                    <strong className="text-foreground">Size:</strong>{" "}
-                    {formatFileSize(videoSession.fileSize)}
-                  </span>
-                  {videoDims ? (
-                    <span>
-                      <strong className="text-foreground">Res:</strong> {videoDims.w} × {videoDims.h}
-                    </span>
-                  ) : null}
-                  {hasActiveTransform(videoTransform) ? (
-                    <span className="text-signal font-bold">
-                      ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot:{" "}
-                      {Math.round(videoTransform.rotation)}°
-                      {videoTransform.cropPreset !== "none"
-                        ? ` | Crop: ${videoTransform.cropPreset}`
-                        : ""}
-                    </span>
-                  ) : null}
-                </div>
-                <span className="font-bold text-success uppercase">● Hardware Accelerated</span>
-              </div>
-            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant={activeToolTab === "speed" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeToolTab === "speed" && "shadow-xs")}
+              onClick={() => setActiveToolTab(activeToolTab === "speed" ? "none" : "speed")}
+            >
+              <Gauge className="size-3.5" />
+              <span>Speed & Jump TC</span>
+            </Button>
           </div>
-        </DeckExpander>
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[10px] font-mono font-bold text-muted-foreground hover:text-foreground"
+              onClick={() => setActiveToolTab(activeToolTab === "none" ? "trim" : "none")}
+              title={activeToolTab === "none" ? "Expand tool drawer" : "Collapse tool drawer to maximize viewport"}
+            >
+              {activeToolTab === "none" ? (
+                <>
+                  <ChevronDown className="size-3.5 mr-1" />
+                  <span>Open Drawer</span>
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="size-3.5 mr-1" />
+                  <span>Collapse</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Drawer Body */}
+        {activeToolTab !== "none" ? (
+          <div className="p-3 bg-card space-y-3">
+            {activeToolTab === "trim" && (
+              <TrimControls
+                currentSec={current}
+                durationSec={duration}
+                onSeek={jumpTo}
+                disabled={disabled}
+                videoDims={videoDims}
+                activeTransform={videoTransform}
+              />
+            )}
+
+            {activeToolTab === "transform" && (
+              <TransformControls
+                transform={videoTransform}
+                onChange={(partial) => setVideoTransform((prev) => ({ ...prev, ...partial }))}
+                onReset={() => {
+                  setVideoTransform(DEFAULT_TRANSFORM);
+                  toast("Deck transforms reset");
+                }}
+                title="Transform & Crop Framing"
+                disabled={disabled}
+                bakeToggle={{
+                  enabled: bakeTransformOnCapture,
+                  onToggle: (val) => setBakeTransformOnCapture(val),
+                }}
+              />
+            )}
+
+            {activeToolTab === "speed" && (
+              <div className="space-y-3 font-mono text-xs">
+                {/* Speed Selector & Direct Jump Row */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between rounded-[var(--radius-sm)] border border-border bg-secondary/30 p-3">
+                  {/* Speed Selector Dropdown, Chips & Fine Control */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Deck Speed:
+                    </span>
+                    <SpeedDropdown
+                      rate={rate}
+                      onRateChange={applyRate}
+                      disabled={disabled}
+                      className="w-28 sm:w-32"
+                    />
+                    <SpeedControl
+                      rate={rate}
+                      onRateChange={applyRate}
+                      disabled={disabled}
+                      pitchPreserve={pitchPreserve}
+                      onPitchPreserveChange={togglePitchPreserve}
+                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      {COMMON_PLAYBACK_RATES.map((r) => (
+                        <Button
+                          key={r}
+                          size="sm"
+                          variant={Math.abs(rate - r) < 0.001 ? "signal" : "outline"}
+                          disabled={disabled}
+                          onClick={() => applyRate(r)}
+                          className="h-7 min-w-9 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"
+                        >
+                          {r}×
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Jump To Direct Timecode */}
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Jump TC:
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <TimeField
+                        value={hours}
+                        placeholder="00"
+                        disabled={disabled}
+                        max={99}
+                        onChange={setHours}
+                        onEnter={gotoTyped}
+                      />
+                      <span className="font-bold text-muted-foreground">:</span>
+                      <TimeField
+                        value={minutes}
+                        placeholder="00"
+                        disabled={disabled}
+                        max={59}
+                        onChange={setMinutes}
+                        onEnter={gotoTyped}
+                      />
+                      <span className="font-bold text-muted-foreground">:</span>
+                      <TimeField
+                        value={seconds}
+                        placeholder="00"
+                        disabled={disabled}
+                        max={59}
+                        onChange={setSeconds}
+                        onEnter={gotoTyped}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        disabled={disabled}
+                        onClick={gotoTyped}
+                        className="h-7 px-2.5 text-xs font-bold font-mono touch-manipulation active:scale-95 ml-1"
+                      >
+                        Go
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Video Technical Specs Ribbon */}
+                {videoSession ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                    <div className="flex items-center gap-3">
+                      <span>
+                        <strong className="text-foreground">Size:</strong>{" "}
+                        {formatFileSize(videoSession.fileSize)}
+                      </span>
+                      {videoDims ? (
+                        <span>
+                          <strong className="text-foreground">Res:</strong> {videoDims.w} × {videoDims.h}
+                        </span>
+                      ) : null}
+                      {hasActiveTransform(videoTransform) ? (
+                        <span className="text-signal font-bold">
+                          ● Zoom: {Math.round(videoTransform.zoom * 100)}% | Rot:{" "}
+                          {Math.round(videoTransform.rotation)}°
+                          {videoTransform.cropPreset !== "none"
+                            ? ` | Crop: ${videoTransform.cropPreset}`
+                            : ""}
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="font-bold text-success uppercase">● Hardware Accelerated</span>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </Panel>
   );

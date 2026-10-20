@@ -7,6 +7,7 @@ import { AudioDeck } from "@/features/audio";
 import { ImageBench } from "@/features/bench";
 import { VideoPlayer } from "@/features/player";
 import { CaptureStrip } from "@/features/strip";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/")({ component: WorkspacePage });
 
@@ -35,58 +36,54 @@ export function WorkspacePage() {
   return (
     <AppShell>
       {/* Studio Deck Rack Configuration Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2">
         <div className="flex items-center gap-2">
-          <Layers className="size-4 text-signal" />
+          <Layers className="size-3.5 text-signal" />
           <span className="font-mono text-xs font-bold uppercase tracking-wider text-foreground">
-            Studio Rack Viewport:
+            Studio Viewport:
           </span>
         </div>
 
         {/* View Mode Switcher */}
-        <div className="flex flex-wrap items-center gap-1.5 font-mono text-[11px]">
+        <div className="flex flex-wrap items-center gap-1 rounded-[var(--radius-sm)] border border-border/80 bg-secondary/50 p-1 font-mono text-[11px]">
           <Button
             size="sm"
-            variant={layoutMode === "video-bench" ? "default" : "outline"}
-            className="h-6 px-2 text-[10px]"
+            variant={layoutMode === "video-bench" ? "primary" : "ghost"}
+            className={cn("h-6.5 px-2.5 text-[10px] font-semibold transition-all", layoutMode === "video-bench" && "shadow-xs font-bold")}
             onClick={() => changeLayout("video-bench")}
           >
-            <Film className="size-3 mr-1" />
-            <span className="hidden sm:inline">Deck-1 (Video) + Deck-2 (Image)</span>
-            <span className="sm:hidden">Video + Img</span>
+            <Film className="size-3 mr-1.5" />
+            <span>Video + Image Bench</span>
           </Button>
 
           <Button
             size="sm"
-            variant={layoutMode === "video-audio" ? "default" : "outline"}
-            className="h-6 px-2 text-[10px]"
+            variant={layoutMode === "video-audio" ? "primary" : "ghost"}
+            className={cn("h-6.5 px-2.5 text-[10px] font-semibold transition-all", layoutMode === "video-audio" && "shadow-xs font-bold")}
             onClick={() => changeLayout("video-audio")}
           >
-            <Music className="size-3 mr-1 text-emerald-400" />
-            <span className="hidden sm:inline">Deck-1 (Video) + Audio Deck</span>
-            <span className="sm:hidden">Video + Audio</span>
+            <Music className="size-3 mr-1.5 text-emerald-400" />
+            <span>Video + Audio Deck</span>
           </Button>
 
           <Button
             size="sm"
-            variant={layoutMode === "audio-bench" ? "default" : "outline"}
-            className="h-6 px-2 text-[10px]"
+            variant={layoutMode === "audio-bench" ? "primary" : "ghost"}
+            className={cn("h-6.5 px-2.5 text-[10px] font-semibold transition-all", layoutMode === "audio-bench" && "shadow-xs font-bold")}
             onClick={() => changeLayout("audio-bench")}
           >
-            <ImageIcon className="size-3 mr-1" />
-            <span className="hidden sm:inline">Audio Deck + Deck-2 (Image)</span>
-            <span className="sm:hidden">Audio + Img</span>
+            <ImageIcon className="size-3 mr-1.5" />
+            <span>Audio + Image Bench</span>
           </Button>
 
           <Button
             size="sm"
-            variant={layoutMode === "all-three" ? "default" : "outline"}
-            className="h-6 px-2 text-[10px]"
+            variant={layoutMode === "all-three" ? "primary" : "ghost"}
+            className={cn("h-6.5 px-2.5 text-[10px] font-semibold transition-all", layoutMode === "all-three" && "shadow-xs font-bold")}
             onClick={() => changeLayout("all-three")}
           >
-            <LayoutGrid className="size-3 mr-1 text-signal" />
-            <span className="hidden sm:inline">Full Studio Rack (All 3 Decks)</span>
-            <span className="sm:hidden">All 3 Decks</span>
+            <LayoutGrid className="size-3 mr-1.5 text-signal" />
+            <span>All 3 Decks</span>
           </Button>
         </div>
       </div>

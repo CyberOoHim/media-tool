@@ -1,5 +1,7 @@
 import {
   Bookmark,
+  ChevronDown,
+  ChevronUp,
   ChevronsLeft,
   ChevronsRight,
   Eye,
@@ -17,7 +19,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { DeckExpander } from "@/components/layout/deck-expander";
 import { DropZone } from "@/components/layout/drop-zone";
 import { Panel } from "@/components/layout/panel";
 import { Badge } from "@/components/ui/badge";
@@ -143,6 +144,7 @@ export function AudioDeck() {
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("");
   const [seconds, setSeconds] = useState("");
+  const [activeAudioTab, setActiveAudioTab] = useState<"trim" | "dsp" | "cues" | "none">("trim");
 
   const disabled = !audio || !ready;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -677,7 +679,7 @@ export function AudioDeck() {
         />
 
         {/* Main Bezel: Audio Waveform Screen & Stereo VU Meter */}
-        <div className="relative overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-theater shadow-inner">
+        <div className="relative overflow-hidden rounded-[var(--radius-sm)] border border-border/80 bg-theater shadow-xs">
           {audio ? (
             <div className="p-2 sm:p-2.5 flex flex-col gap-2 bg-theater">
               {/* Visualizer and Waveform */}
@@ -1098,7 +1100,7 @@ export function AudioDeck() {
         </div>
 
         {/* Digital LCD Timecode Box (matching Video Player) */}
-        <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border-2 border-border bg-theater px-3 py-1.5 text-center font-mono shadow-[inset_1px_1px_2px_rgba(0,0,0,0.5)]">
+        <div className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-border/80 bg-theater px-3 py-1.5 text-center font-mono shadow-xs">
           <span className="size-2.5 rounded-full bg-signal animate-pulse" />
           <p className="text-xs sm:text-sm font-bold tabular tracking-widest text-[#FCEEE2]">
             <span>{formatTimePrecise(currentTime)}</span>
@@ -1148,175 +1150,206 @@ export function AudioDeck() {
         </div>
       </div>
 
-      {/* 3 Expandable Sub-Decks (aligned with Video Player layout & typography) */}
-      <div className="mt-3.5 space-y-3.5">
-        {/* Expander 1: Cut, Trim & Multi-Format Exporter */}
-        <DeckExpander
-          id="deck-audio-cut-trim"
-          title="Deck-2 // Audio Cut, Trim & Master Exporter"
-          subtitle="Sample-accurate splicing, lossless trimming, fade curves & multi-format master export"
-          icon={<Scissors className="size-3.5" />}
-          badge={
-            trimStart !== null || trimEnd !== null ? (
-              <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
-                RANGE ACTIVE
-              </Badge>
-            ) : null
-          }
-          disabled={disabled}
-          defaultOpen={true}
-        >
-          <AudioTrimControls />
-        </DeckExpander>
-
-        {/* Expander 2: 5-Band Graphic EQ, Filters & Tone Rack */}
-        <DeckExpander
-          id="deck-audio-eq-dsp"
-          title="Deck-2 // 5-Band Graphic EQ & DSP Tone Rack"
-          subtitle="Hardware-modeled parametric equalizer, high/low-pass filters, loudness normalization & dynamics"
-          icon={<SlidersHorizontal className="size-3.5" />}
-          badge={
-            !eqBypass ? (
-              <Badge variant="signal" className="px-1.5 py-0 text-[8px]">
-                EQ ACTIVE
-              </Badge>
-            ) : null
-          }
-          disabled={disabled}
-          defaultOpen={true}
-        >
-          <AudioDspControls />
-        </DeckExpander>
-
-        {/* Expander 3: Cue Points & Audio Slice Bookmarks & Direct Timecode Transport */}
-        <DeckExpander
-          id="deck-audio-cue-points"
-          title="Deck-2 // Cue Actions & Timecode Transport"
-          subtitle="Timecode slice bookmarking, hot cues, variable playback rates & direct jump"
-          icon={<Bookmark className="size-3.5" />}
-          badge={
-            cuePoints.length > 0 ? (
-              <Badge variant="outline" className="px-1.5 py-0 text-[8px] border-amber-500 text-amber-500">
-                {cuePoints.length} CUES
-              </Badge>
-            ) : null
-          }
-          disabled={disabled}
-          defaultOpen={true}
-        >
-          <div className="space-y-3">
-            {/* Speed Selector & Direct Jump Row (identical to Video Player) */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-b border-border/50 pb-3">
-              {/* Speed Selector Dropdown, Chips & Fine Control */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Deck Speed:
+      {/* Segmented Tool Inspector Drawer for Audio Deck */}
+      <div className={cn("mt-3.5 rounded-[var(--radius-sm)] border border-border/80 bg-card/90 shadow-xs overflow-hidden", disabled && "pointer-events-none opacity-40")}>
+        {/* Drawer Header Switcher */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 bg-secondary/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground mr-1 hidden sm:inline">
+              Audio Tools:
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              variant={activeAudioTab === "trim" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeAudioTab === "trim" && "shadow-xs")}
+              onClick={() => setActiveAudioTab(activeAudioTab === "trim" ? "none" : "trim")}
+            >
+              <Scissors className="size-3.5" />
+              <span>Cut & Trim</span>
+              {trimStart !== null || trimEnd !== null ? (
+                <span className="ml-0.5 rounded-xs bg-signal/20 px-1 text-[8px] font-bold text-signal">
+                  RANGE
                 </span>
-                <SpeedDropdown
-                  rate={rate}
-                  onRateChange={applyRate}
-                  disabled={disabled}
-                  className="w-28 sm:w-32"
-                />
-                <SpeedControl
-                  rate={rate}
-                  onRateChange={applyRate}
-                  disabled={disabled}
-                  pitchPreserve={pitchPreserve}
-                  onPitchPreserveChange={togglePitchPreserve}
-                />
-                <div className="flex flex-wrap gap-1.5">
-                  {COMMON_PLAYBACK_RATES.map((r) => (
-                    <Button
-                      key={r}
-                      size="sm"
-                      variant={Math.abs(rate - r) < 0.001 ? "signal" : "outline"}
-                      disabled={disabled}
-                      onClick={() => applyRate(r)}
-                      className="h-8 min-w-10 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"
-                    >
-                      {r}×
-                    </Button>
-                  ))}
-                </div>
-              </div>
+              ) : null}
+            </Button>
 
-              {/* Jump To Direct Timecode */}
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Jump TC:
+            <Button
+              type="button"
+              size="sm"
+              variant={activeAudioTab === "dsp" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeAudioTab === "dsp" && "shadow-xs")}
+              onClick={() => setActiveAudioTab(activeAudioTab === "dsp" ? "none" : "dsp")}
+            >
+              <SlidersHorizontal className="size-3.5" />
+              <span>EQ & DSP Tone</span>
+              {!eqBypass ? (
+                <span className="ml-0.5 rounded-xs bg-success/20 px-1 text-[8px] font-bold text-success">
+                  ACTIVE
                 </span>
-                <div className="flex items-center gap-1.5">
-                  <TimeField
-                    value={hours}
-                    placeholder="00"
-                    disabled={disabled}
-                    max={99}
-                    onChange={setHours}
-                    onEnter={gotoTyped}
-                  />
-                  <span className="font-bold text-muted-foreground">:</span>
-                  <TimeField
-                    value={minutes}
-                    placeholder="00"
-                    disabled={disabled}
-                    max={59}
-                    onChange={setMinutes}
-                    onEnter={gotoTyped}
-                  />
-                  <span className="font-bold text-muted-foreground">:</span>
-                  <TimeField
-                    value={seconds}
-                    placeholder="00"
-                    disabled={disabled}
-                    max={59}
-                    onChange={setSeconds}
-                    onEnter={gotoTyped}
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="primary"
-                    disabled={disabled}
-                    onClick={gotoTyped}
-                    className="h-8 px-2.5 text-xs font-bold font-mono touch-manipulation active:scale-95 ml-1"
-                  >
-                    Go
-                  </Button>
-                </div>
-              </div>
-            </div>
+              ) : null}
+            </Button>
 
-            {/* Audio Technical Specs Ribbon */}
-            {audio ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
-                <div className="flex items-center gap-3">
-                  <span>
-                    <strong className="text-foreground">Size:</strong>{" "}
-                    {formatFileSize(audio.fileSize)}
-                  </span>
-                  <span>
-                    <strong className="text-foreground">Rate:</strong>{" "}
-                    {(audio.sampleRate / 1000).toFixed(1)} kHz
-                  </span>
-                  <span>
-                    <strong className="text-foreground">Layout:</strong>{" "}
-                    {audio.numberOfChannels === 1 ? "Mono" : "Stereo (2-ch)"}
-                  </span>
-                  {!eqBypass ? (
-                    <span className="text-signal font-bold">
-                      ● EQ: Active 5-Band
-                    </span>
-                  ) : null}
-                </div>
-                <span className="font-bold text-success uppercase">● Web Audio Hardware DSP</span>
-              </div>
-            ) : null}
-
-            {/* Cue Marker Controls Component */}
-            <AudioCueControls onSeek={seekTo} />
+            <Button
+              type="button"
+              size="sm"
+              variant={activeAudioTab === "cues" ? "primary" : "ghost"}
+              className={cn("h-7 px-2.5 font-mono text-[11px] font-bold gap-1.5", activeAudioTab === "cues" && "shadow-xs")}
+              onClick={() => setActiveAudioTab(activeAudioTab === "cues" ? "none" : "cues")}
+            >
+              <Bookmark className="size-3.5" />
+              <span>Cues & Transport</span>
+              {cuePoints.length > 0 ? (
+                <span className="ml-0.5 rounded-xs bg-amber-500/20 px-1 text-[8px] font-bold text-amber-500">
+                  {cuePoints.length}
+                </span>
+              ) : null}
+            </Button>
           </div>
-        </DeckExpander>
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[10px] font-mono font-bold text-muted-foreground hover:text-foreground"
+              onClick={() => setActiveAudioTab(activeAudioTab === "none" ? "trim" : "none")}
+            >
+              {activeAudioTab === "none" ? (
+                <>
+                  <ChevronDown className="size-3.5 mr-1" />
+                  <span>Open Drawer</span>
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="size-3.5 mr-1" />
+                  <span>Collapse</span>
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+
+        {/* Drawer Body */}
+        {activeAudioTab !== "none" ? (
+          <div className="p-3 bg-card space-y-3">
+            {activeAudioTab === "trim" && <AudioTrimControls />}
+            {activeAudioTab === "dsp" && <AudioDspControls />}
+            {activeAudioTab === "cues" && (
+              <div className="space-y-3">
+                {/* Speed Selector & Direct Jump Row */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between border-b border-border/50 pb-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Deck Speed:
+                    </span>
+                    <SpeedDropdown
+                      rate={rate}
+                      onRateChange={applyRate}
+                      disabled={disabled}
+                      className="w-28 sm:w-32"
+                    />
+                    <SpeedControl
+                      rate={rate}
+                      onRateChange={applyRate}
+                      disabled={disabled}
+                      pitchPreserve={pitchPreserve}
+                      onPitchPreserveChange={togglePitchPreserve}
+                    />
+                    <div className="flex flex-wrap gap-1.5">
+                      {COMMON_PLAYBACK_RATES.map((r) => (
+                        <Button
+                          key={r}
+                          size="sm"
+                          variant={Math.abs(rate - r) < 0.001 ? "signal" : "outline"}
+                          disabled={disabled}
+                          onClick={() => applyRate(r)}
+                          className="h-8 min-w-10 px-2 text-xs font-bold font-mono touch-manipulation active:scale-95"
+                        >
+                          {r}×
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Jump To Direct Timecode */}
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Jump TC:
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <TimeField
+                        value={hours}
+                        placeholder="00"
+                        disabled={disabled}
+                        max={99}
+                        onChange={setHours}
+                        onEnter={gotoTyped}
+                      />
+                      <span className="font-bold text-muted-foreground">:</span>
+                      <TimeField
+                        value={minutes}
+                        placeholder="00"
+                        disabled={disabled}
+                        max={59}
+                        onChange={setMinutes}
+                        onEnter={gotoTyped}
+                      />
+                      <span className="font-bold text-muted-foreground">:</span>
+                      <TimeField
+                        value={seconds}
+                        placeholder="00"
+                        disabled={disabled}
+                        max={59}
+                        onChange={setSeconds}
+                        onEnter={gotoTyped}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="primary"
+                        disabled={disabled}
+                        onClick={gotoTyped}
+                        className="h-8 px-2.5 text-xs font-bold font-mono touch-manipulation active:scale-95 ml-1"
+                      >
+                        Go
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Audio Technical Specs Ribbon */}
+                {audio ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground">
+                    <div className="flex items-center gap-3">
+                      <span>
+                        <strong className="text-foreground">Size:</strong>{" "}
+                        {formatFileSize(audio.fileSize)}
+                      </span>
+                      <span>
+                        <strong className="text-foreground">Rate:</strong>{" "}
+                        {(audio.sampleRate / 1000).toFixed(1)} kHz
+                      </span>
+                      <span>
+                        <strong className="text-foreground">Layout:</strong>{" "}
+                        {audio.numberOfChannels === 1 ? "Mono" : "Stereo (2-ch)"}
+                      </span>
+                      {!eqBypass ? (
+                        <span className="text-signal font-bold">
+                          ● EQ: Active 5-Band
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="font-bold text-success uppercase">● Web Audio Hardware DSP</span>
+                  </div>
+                ) : null}
+
+                {/* Cue Marker Controls Component */}
+                <AudioCueControls onSeek={seekTo} />
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
     </Panel>
   </div>
