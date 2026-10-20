@@ -14,6 +14,12 @@ import {
   type ExportProgress,
   type ExportResult,
 } from "./trim-types";
+import { resolveCropTarget } from "../media/crop";
+import {
+  calculateOrientedDimensions,
+  hasActiveTransform,
+  type TransformState,
+} from "../media/transform";
 
 export interface ExportSegment {
   startSec: number;
@@ -227,6 +233,7 @@ export async function exportVideoWebCodecs({
   fileName,
   segments,
   config,
+  transform,
   onProgress,
   signal,
 }: {
@@ -234,6 +241,7 @@ export async function exportVideoWebCodecs({
   fileName: string;
   segments: ExportSegment[];
   config: ExportConfig;
+  transform?: TransformState;
   onProgress?: (progress: ExportProgress) => void;
   signal?: AbortSignal;
 }): Promise<ExportResult> {
@@ -280,63 +288,99 @@ export async function exportVideoWebCodecs({
   video.preload = "auto";
   video.src = sourceUrl;
 
-  await new Promise<void>((resolve, reject) => {
-    const onLoaded = () => {
-      cleanup();
-      resolve();
-    };
-    const onError = () => {
-      cleanup();
-      reject(new Error("Failed to load video source for export."));
-    };
-    const cleanup = () => {
-      video.removeEventListener("loadeddata", onLoaded);
-      video.removeEventListener("error", onError);
-    };
-    video.addEventListener("loadeddata", onLoaded);
-    video.addEventListener("error", onError);
-    video.load();
-  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onLoaded = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("Failed to load video source for export."));
+      };
+      const cleanup = () => {
+        video.removeEventListener("loadeddata", onLoaded);
+        video.removeEventListener("error", onError);
+      };
+      video.addEventListener("loadeddata", onLoaded);
+      video.addEventListener("error", onError);
+      video.load();
+    });
 
-  const rawWidth = video.videoWidth || 1920;
-  const rawHeight = video.videoHeight || 1080;
+    const rawWidth = video.videoWidth || 1920;
+    const rawHeight = video.videoHeight || 1080;
 
-  // Calculate target output resolution based on exportConfig
-  const { width, height } = calculateExportResolution(
-    rawWidth,
-    rawHeight,
-    config.resolution || "original",
-    config.customWidth,
-    config.customHeight,
-  );
+    const shouldBakeTransform = Boolean(
+      config.bakeTransform !== false && transform && hasActiveTransform(transform),
+    );
 
-  const targetFps = resolveExportFps(
-    config.fpsPreset,
-    config.customFps,
-    config.fps > 0 ? config.fps : 30,
-  );
-  const frameDurationSec = 1 / targetFps;
-  const totalFrames = Math.max(1, Math.round(totalOutputDuration * targetFps));
+    let width: number;
+    let height: number;
+    let oriented: { width: number; height: number } | null = null;
 
-  const isOriginalResolution =
-    (config.resolution === "original" || !config.resolution) &&
-    width === rawWidth &&
-    height === rawHeight;
+    if (shouldBakeTransform && transform) {
+      oriented = calculateOrientedDimensions(rawWidth, rawHeight, transform.rotation);
+      const crop = resolveCropTarget(
+        oriented.width,
+        oriented.height,
+        transform.cropPreset,
+        transform.customWidth,
+        transform.customHeight,
+      );
+      if (config.resolution && config.resolution !== "original") {
+        const res = calculateExportResolution(
+          crop.width,
+          crop.height,
+          config.resolution,
+          config.customWidth,
+          config.customHeight,
+        );
+        width = Math.max(32, Math.round(res.width / 2) * 2);
+        height = Math.max(32, Math.round(res.height / 2) * 2);
+      } else {
+        width = Math.max(32, Math.round(crop.width / 2) * 2);
+        height = Math.max(32, Math.round(crop.height / 2) * 2);
+      }
+    } else {
+      const res = calculateExportResolution(
+        rawWidth,
+        rawHeight,
+        config.resolution || "original",
+        config.customWidth,
+        config.customHeight,
+      );
+      width = Math.max(32, Math.round(res.width / 2) * 2);
+      height = Math.max(32, Math.round(res.height / 2) * 2);
+    }
 
-  // Canvas for frame extraction (used when resizing/scaling is required)
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
-  if (!ctx) {
-    throw new Error("Unable to create canvas 2D context for video rendering.");
-  }
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = "high";
+    const targetFps = resolveExportFps(
+      config.fpsPreset,
+      config.customFps,
+      config.fps > 0 ? config.fps : 30,
+    );
+    const frameDurationSec = 1 / targetFps;
+    const totalFrames = Math.max(1, Math.round(totalOutputDuration * targetFps));
 
-  // 3. Audio: remux source AAC first (iPad Safari/Chrome have VideoEncoder but often
-  // no AudioEncoder; Opus-in-MP4 is silent on iOS). Re-encode AAC only if remux fails.
-  let hasAudioTrack = false;
+    const isOriginalResolution =
+      !shouldBakeTransform &&
+      (config.resolution === "original" || !config.resolution) &&
+      width === rawWidth &&
+      height === rawHeight;
+
+    // Canvas for frame extraction (used when resizing/scaling or baking transform)
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: false, alpha: false });
+    if (!ctx) {
+      throw new Error("Unable to create canvas 2D context for video rendering.");
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+
+    // 3. Audio: remux source AAC first (iPad Safari/Chrome have VideoEncoder but often
+    // no AudioEncoder; Opus-in-MP4 is silent on iOS). Re-encode AAC only if remux fails.
+    let hasAudioTrack = false;
   let chosenSampleRate = 48000;
   let targetChannels: 1 | 2 = 2;
   const audioPackets: MuxAudioPacket[] = [];
@@ -585,7 +629,25 @@ export async function exportVideoWebCodecs({
       const frameDurationUs = Math.round(frameDurationSec * 1_000_000);
       const outputTimestampUs = Math.round(frameIndex * frameDurationSec * 1_000_000);
 
-      if (isOriginalResolution) {
+      if (shouldBakeTransform && transform && oriented) {
+        ctx.save();
+        ctx.clearRect(0, 0, width, height);
+        const translateX = width / 2 + (transform.panX / 100) * width;
+        const translateY = height / 2 + (transform.panY / 100) * height;
+        ctx.translate(translateX, translateY);
+        ctx.rotate((transform.rotation * Math.PI) / 180);
+        const scaleFit = Math.max(width / oriented.width, height / oriented.height);
+        const scaleX = transform.zoom * (transform.flipH ? -1 : 1) * scaleFit;
+        const scaleY = transform.zoom * (transform.flipV ? -1 : 1) * scaleFit;
+        ctx.scale(scaleX, scaleY);
+        ctx.drawImage(video, -rawWidth / 2, -rawHeight / 2, rawWidth, rawHeight);
+        ctx.restore();
+
+        videoFrame = new VideoFrame(canvas, {
+          timestamp: outputTimestampUs,
+          duration: frameDurationUs,
+        });
+      } else if (isOriginalResolution) {
         // Direct VideoFrame extraction from HTMLVideoElement preserves native YUV & avoids RGBA canvas artifacts
         videoFrame = new VideoFrame(video, {
           timestamp: outputTimestampUs,
@@ -701,4 +763,20 @@ export async function exportVideoWebCodecs({
     hasAudio: actualHasAudio,
     audioCodec: audioCodecLabel,
   };
+  } finally {
+    try {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    } catch {
+      // ignore
+    }
+    try {
+      if (videoEncoder.state !== "closed") {
+        videoEncoder.close();
+      }
+    } catch {
+      // ignore
+    }
+  }
 }

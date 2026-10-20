@@ -67,9 +67,9 @@ export function KeyboardShortcutsDialog() {
 
           {/* Body */}
           <div className="p-4">
-            <p className="mb-3 font-mono text-xs text-muted-foreground">
-              Master video with these physical deck shortcuts:
-            </p>
+            <div className="mb-3 rounded-[var(--radius-sm)] border border-signal/40 bg-signal/10 p-2 font-mono text-[11px] text-foreground">
+              <span className="font-bold text-signal">● Active Deck Routing:</span> Click or hover either Video or Audio deck to route shortcuts directly to it (highlighted with the <span className="font-bold uppercase text-signal">[SHORTCUT FOCUS]</span> badge).
+            </div>
             <div className="space-y-2">
               {SHORTCUTS.map((s) => (
                 <div

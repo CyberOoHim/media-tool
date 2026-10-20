@@ -71,6 +71,7 @@ export interface ExportConfig {
   format: "mp4";
   bitrateMbps: number;
   keepAudio: boolean;
+  bakeTransform?: boolean;
 }
 
 export interface ExportProgress {

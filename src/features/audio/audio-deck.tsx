@@ -41,6 +41,9 @@ import { AudioDspControls } from "./audio-dsp-controls";
 import { AudioTrimControls } from "./audio-trim-controls";
 import { AudioVuMeter } from "./audio-vu-meter";
 import { AudioWaveform } from "./audio-waveform";
+import { connectLiveAudioGraph, updateLiveDspGraph } from "./live-audio-graph";
+import { getAudioContext } from "./audio-engine";
+import { useDeckFocusStore } from "@/lib/deck-focus-store";
 import { useAudioStore } from "./store";
 
 function TimeField({
@@ -105,6 +108,18 @@ export function AudioDeck() {
   const eqBypass = useAudioStore((s) => s.eqBypass);
   const isExtracting = useAudioStore((s) => s.isExtracting);
 
+  const eq = useAudioStore((s) => s.eq);
+  const lowCut = useAudioStore((s) => s.lowCut);
+  const highCut = useAudioStore((s) => s.highCut);
+  const dynamics = useAudioStore((s) => s.dynamics);
+  const dynamicsBypass = useAudioStore((s) => s.dynamicsBypass);
+  const gainBoost = useAudioStore((s) => s.gainBoost);
+
+  const focusedDeck = useDeckFocusStore((s) => s.focusedDeck);
+  const claimFocus = useDeckFocusStore((s) => s.claimFocus);
+
+  const [liveAnalyser, setLiveAnalyser] = useState<AnalyserNode | null>(null);
+
   const loadAudioFile = useAudioStore((s) => s.loadAudioFile);
   const extractFromVideoSession = useAudioStore((s) => s.extractFromVideoSession);
   const setPlaying = useAudioStore((s) => s.setPlaying);
@@ -132,14 +147,33 @@ export function AudioDeck() {
   const disabled = !audio || !ready;
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  // Sync volume and mute directly with the native audio element
+  // Initialize and connect live Web Audio DSP Graph
   useEffect(() => {
     const el = audioRef.current;
-    if (el) {
-      el.volume = Math.min(1, Math.max(0, volume));
-      el.muted = muted;
+    if (!el || !audio?.objectUrl) return;
+
+    try {
+      const analyser = connectLiveAudioGraph(el);
+      setLiveAnalyser(analyser);
+    } catch (err) {
+      console.warn("Live Web Audio graph connection:", err);
     }
-  }, [volume, muted]);
+  }, [audio?.objectUrl]);
+
+  // Sync real-time Web Audio DSP parameters
+  useEffect(() => {
+    updateLiveDspGraph({
+      eq,
+      eqBypass,
+      lowCut,
+      highCut,
+      dynamics,
+      dynamicsBypass,
+      gainBoost,
+      volume,
+      muted,
+    });
+  }, [eq, eqBypass, lowCut, highCut, dynamics, dynamicsBypass, gainBoost, volume, muted]);
 
   // Audio Playhead Time & Loop bounds synchronization
   const handleTimeUpdate = useCallback(() => {
@@ -204,6 +238,10 @@ export function AudioDeck() {
     if (!el || !audio?.objectUrl) return;
 
     if (el.paused) {
+      const ctx = getAudioContext();
+      if (ctx.state === "suspended") {
+        void ctx.resume();
+      }
       if (previewTrimMode && trimMode === "trim") {
         const s = trimStart !== null ? trimStart : 0;
         const e = trimEnd !== null ? trimEnd : el.duration;
@@ -393,6 +431,7 @@ export function AudioDeck() {
       }
 
       if (!audio) return;
+      if (focusedDeck && focusedDeck !== "audio") return;
 
       switch (e.key) {
         case " ":
@@ -514,6 +553,7 @@ export function AudioDeck() {
     setPreviewTrimMode,
     rate,
     applyRate,
+    focusedDeck,
   ]);
 
   const deckStatus = isExtracting
@@ -529,107 +569,124 @@ export function AudioDeck() {
   const deckStatusVariant = playing ? "success" : audio ? "signal" : "default";
 
   return (
-    <Panel
-      title="Deck-2 // Audio Workstation"
-      status={deckStatus}
-      statusVariant={deckStatusVariant}
-      action={
-        audio ? (
-          <div className="flex items-center gap-2">
-            {videoSession && (
-              <Button
-                size="sm"
-                variant="outline"
-                className={cn(
-                  "h-6 px-2 text-[10px] font-mono border-signal/60 bg-signal/10 hover:bg-signal/20 text-foreground transition-all",
-                  isExtracting && "animate-pulse",
-                )}
-                disabled={isExtracting}
-                onClick={() => {
-                  if (videoSession) {
-                    void extractFromVideoSession(videoSession.objectUrl, videoSession.fileName);
-                  }
-                }}
-                title="Extract sound track from Deck-1 Video"
-              >
-                <Zap className="size-3 mr-1 text-signal" />
-                <span className="hidden sm:inline">
-                  {isExtracting ? "Extracting Track..." : "Extract from Video"}
-                </span>
-                <span className="sm:hidden">Extract</span>
-              </Button>
-            )}
-            <span className="max-w-[120px] truncate font-mono text-[11px] font-bold text-foreground sm:max-w-[180px]">
-              {audio.fileName}
-            </span>
-            <DropZone
-              accept="audio/*,video/*"
-              onFiles={(files) => {
-                if (files[0]) void loadAudioFile(files[0]);
-              }}
-              className="border-0 bg-transparent px-0 py-0 hover:bg-transparent"
-            >
-              <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]">
-                Eject / Swap
-              </Button>
-            </DropZone>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            {videoSession && (
-              <Button
-                size="sm"
-                variant="outline"
-                className={cn(
-                  "h-6 px-2 text-[10px] font-mono border-signal/60 bg-signal/10 hover:bg-signal/20 text-foreground transition-all",
-                  isExtracting && "animate-pulse",
-                )}
-                disabled={isExtracting}
-                onClick={() => {
-                  if (videoSession) {
-                    void extractFromVideoSession(videoSession.objectUrl, videoSession.fileName);
-                  }
-                }}
-                title="Extract sound track from Deck-1 Video"
-              >
-                <Zap className="size-3 mr-1 text-signal" />
-                <span>Extract from Video</span>
-              </Button>
-            )}
-            <Badge variant="outline">No Track Inserted</Badge>
-          </div>
-        )
-      }
+    <div
+      onClickCapture={() => claimFocus("audio")}
+      onMouseEnter={() => claimFocus("audio")}
+      className="relative"
     >
-      {/* Native HTML5 Audio Element */}
-      <audio
-        ref={audioRef}
-        src={audio?.objectUrl}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={syncMediaProperties}
-        onLoadedData={syncMediaProperties}
-        onCanPlay={syncMediaProperties}
-        onSeeked={syncMediaProperties}
-        onEnded={handleEnded}
-        onPlay={() => {
-          syncMediaProperties();
-          setPlaying(true);
-        }}
-        onPause={() => setPlaying(false)}
-        preload="auto"
-      />
-
-      {/* Main Bezel: Audio Waveform Screen & Stereo VU Meter */}
-      <div className="relative overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-theater shadow-inner">
-        {audio ? (
-          <div className="p-2 sm:p-2.5 flex flex-col gap-2 bg-theater">
-            {/* Visualizer and Waveform */}
-            <AudioWaveform onSeek={seekTo} />
-
-            {/* Stereo VU Level Meter */}
-            <AudioVuMeter isPlaying={playing} />
+      <Panel
+        title="Deck-2 // Audio Workstation"
+        status={deckStatus}
+        statusVariant={deckStatusVariant}
+        className={cn(
+          "transition-all duration-150",
+          focusedDeck === "audio" &&
+            "ring-2 ring-emerald-500/70 shadow-[0_0_12px_rgba(16,185,129,0.25)]",
+        )}
+        action={
+          <div className="flex items-center gap-2">
+            {focusedDeck === "audio" && (
+              <span className="rounded-xs bg-emerald-500/20 px-1.5 py-0.5 font-mono text-[9px] font-bold text-emerald-400 border border-emerald-500/30">
+                KEYBOARD FOCUS
+              </span>
+            )}
+            {audio ? (
+              <>
+                {videoSession && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      "h-6 px-2 text-[10px] font-mono border-signal/60 bg-signal/10 hover:bg-signal/20 text-foreground transition-all",
+                      isExtracting && "animate-pulse",
+                    )}
+                    disabled={isExtracting}
+                    onClick={() => {
+                      if (videoSession) {
+                        void extractFromVideoSession(videoSession.objectUrl, videoSession.fileName);
+                      }
+                    }}
+                    title="Extract sound track from Deck-1 Video"
+                  >
+                    <Zap className="size-3 mr-1 text-signal" />
+                    <span className="hidden sm:inline">
+                      {isExtracting ? "Extracting Track..." : "Extract from Video"}
+                    </span>
+                    <span className="sm:hidden">Extract</span>
+                  </Button>
+                )}
+                <span className="max-w-[120px] truncate font-mono text-[11px] font-bold text-foreground sm:max-w-[180px]">
+                  {audio.fileName}
+                </span>
+                <DropZone
+                  accept="audio/*,video/*"
+                  onFiles={(files) => {
+                    if (files[0]) void loadAudioFile(files[0]);
+                  }}
+                  className="border-0 bg-transparent px-0 py-0 hover:bg-transparent"
+                >
+                  <Button size="sm" variant="outline" className="h-6 px-2 text-[10px]">
+                    Eject / Swap
+                  </Button>
+                </DropZone>
+              </>
+            ) : (
+              <>
+                {videoSession && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      "h-6 px-2 text-[10px] font-mono border-signal/60 bg-signal/10 hover:bg-signal/20 text-foreground transition-all",
+                      isExtracting && "animate-pulse",
+                    )}
+                    disabled={isExtracting}
+                    onClick={() => {
+                      if (videoSession) {
+                        void extractFromVideoSession(videoSession.objectUrl, videoSession.fileName);
+                      }
+                    }}
+                    title="Extract sound track from Deck-1 Video"
+                  >
+                    <Zap className="size-3 mr-1 text-signal" />
+                    <span>Extract from Video</span>
+                  </Button>
+                )}
+                <Badge variant="outline">No Track Inserted</Badge>
+              </>
+            )}
           </div>
-        ) : (
+        }
+      >
+        {/* Native HTML5 Audio Element */}
+        <audio
+          ref={audioRef}
+          src={audio?.objectUrl}
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={syncMediaProperties}
+          onLoadedData={syncMediaProperties}
+          onCanPlay={syncMediaProperties}
+          onSeeked={syncMediaProperties}
+          onEnded={handleEnded}
+          onPlay={() => {
+            syncMediaProperties();
+            setPlaying(true);
+          }}
+          onPause={() => setPlaying(false)}
+          preload="auto"
+        />
+
+        {/* Main Bezel: Audio Waveform Screen & Stereo VU Meter */}
+        <div className="relative overflow-hidden rounded-[var(--radius-sm)] border-2 border-border bg-theater shadow-inner">
+          {audio ? (
+            <div className="p-2 sm:p-2.5 flex flex-col gap-2 bg-theater">
+              {/* Visualizer and Waveform */}
+              <AudioWaveform onSeek={seekTo} />
+
+              {/* Stereo VU Level Meter */}
+              <AudioVuMeter isPlaying={playing} analyserNode={liveAnalyser} />
+            </div>
+          ) : (
           /* Empty State Drop Box (matching video-player design) */
           <DropZone
             accept="audio/*,video/*"
@@ -1262,6 +1319,7 @@ export function AudioDeck() {
         </DeckExpander>
       </div>
     </Panel>
+  </div>
   );
 }
 

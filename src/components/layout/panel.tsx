@@ -6,6 +6,9 @@ export function Panel({
   action,
   status,
   statusVariant = "default",
+  isFocused,
+  onMouseEnter,
+  onClick,
   children,
   className,
   bodyClassName,
@@ -14,14 +17,20 @@ export function Panel({
   action?: ReactNode;
   status?: string;
   statusVariant?: "default" | "success" | "signal" | "destructive";
+  isFocused?: boolean;
+  onMouseEnter?: () => void;
+  onClick?: () => void;
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
 }) {
   return (
     <section
+      onMouseEnter={onMouseEnter}
+      onClick={onClick}
       className={cn(
         "relative flex min-w-0 flex-col overflow-hidden rounded-[var(--radius-md)] border-2 border-border bg-card shadow-[4px_4px_0px_var(--color-border)] transition-all",
+        isFocused && "ring-2 ring-signal ring-offset-2 ring-offset-background shadow-[5px_5px_0px_var(--color-signal)]",
         className,
       )}
     >
@@ -38,6 +47,15 @@ export function Panel({
           <h2 className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-foreground">
             {title}
           </h2>
+          {isFocused ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-sm border border-signal bg-signal/20 px-1.5 py-0.2 font-mono text-[9px] font-bold text-signal uppercase tracking-wider animate-in fade-in"
+              title="Keyboard shortcuts are actively routed to this deck"
+            >
+              <span className="size-1.5 rounded-full bg-signal animate-ping" />
+              SHORTCUT FOCUS
+            </span>
+          ) : null}
           {status ? (
             <span
               className={cn(

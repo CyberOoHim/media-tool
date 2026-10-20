@@ -180,6 +180,8 @@ export interface AudioState {
   setError: (err: string | null) => void;
 }
 
+let activeAudioExportAbortController: AbortController | null = null;
+
 export const useAudioStore = create<AudioState>((set, get) => ({
   audio: null,
   peaks: null,
@@ -443,6 +445,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   setExportProgressData: (exportProgressData) => set({ exportProgressData }),
   setExportResult: (exportResult) => set({ exportResult }),
   cancelExport: () => {
+    if (activeAudioExportAbortController) {
+      activeAudioExportAbortController.abort();
+      activeAudioExportAbortController = null;
+    }
     set({ isExporting: false, exportProgress: 0, exportProgressData: null });
     toast.info("Audio export cancelled");
   },
@@ -471,6 +477,12 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       toast.error("No audio loaded to export");
       return;
     }
+
+    if (activeAudioExportAbortController) {
+      activeAudioExportAbortController.abort();
+    }
+    const abortController = new AbortController();
+    activeAudioExportAbortController = abortController;
 
     const cfg = { ...exportConfig, ...overrideOptions };
     const effectiveRate = cfg.applyPlaybackSpeed !== false ? (cfg.playbackRate ?? rate) : 1.0;
@@ -522,6 +534,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         pitchPreserve: effectivePitchPreserve,
       });
 
+      if (abortController.signal.aborted) {
+        return;
+      }
+
       const elapsedMid = Math.max(0.1, (performance.now() - startTime) / 1000);
       const isStretching = Math.abs(effectiveRate - 1.0) >= 0.01;
 
@@ -542,29 +558,40 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         },
       });
 
-      const encoded = await encodeAudioBuffer(renderedBuffer, cfg, (progress) => {
-        const currentPercent = Math.min(99, 50 + Math.round(progress * 0.49));
-        const elapsed = Math.max(0.1, (performance.now() - startTime) / 1000);
-        const remaining =
-          currentPercent > 5
-            ? Math.max(0.2, Math.round(((elapsed / (currentPercent / 100)) - elapsed) * 10) / 10)
-            : 1;
+      const encoded = await encodeAudioBuffer(
+        renderedBuffer,
+        cfg,
+        (progress) => {
+          // progress is an integer 0..100
+          const clamped = Math.max(0, Math.min(100, progress));
+          const currentPercent = Math.min(99, 50 + Math.round((clamped / 100) * 49));
+          const elapsed = Math.max(0.1, (performance.now() - startTime) / 1000);
+          const remaining =
+            currentPercent > 5
+              ? Math.max(0.2, Math.round(((elapsed / (currentPercent / 100)) - elapsed) * 10) / 10)
+              : 1;
 
-        set({
-          exportProgress: currentPercent,
-          exportProgressData: {
-            percent: currentPercent,
-            stage: "encoding",
-            message: `Encoding ${cfg.format.toUpperCase()} bitstream (${Math.round(progress * 100)}%)...`,
-            elapsedSec: Math.round(elapsed * 10) / 10,
-            estimatedRemainingSec: remaining,
-            speedMultiplier: effectiveRate,
-            channels: cfg.channels,
-            sampleRate: cfg.sampleRate,
-            format: cfg.format.toUpperCase(),
-          },
-        });
-      });
+          set({
+            exportProgress: currentPercent,
+            exportProgressData: {
+              percent: currentPercent,
+              stage: "encoding",
+              message: `Encoding ${cfg.format.toUpperCase()} bitstream (${Math.round(clamped)}%)...`,
+              elapsedSec: Math.round(elapsed * 10) / 10,
+              estimatedRemainingSec: remaining,
+              speedMultiplier: effectiveRate,
+              channels: cfg.channels,
+              sampleRate: cfg.sampleRate,
+              format: cfg.format.toUpperCase(),
+            },
+          });
+        },
+        abortController.signal,
+      );
+
+      if (abortController.signal.aborted) {
+        return;
+      }
 
       const baseName = fileStem(audio.fileName);
       const modeSuffix = useRange ? `_${trimMode}` : "_master";
@@ -619,6 +646,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         toast.success(`Export succeeded! Ready to download: ${outFileName}`);
       }
     } catch (err) {
+      if (abortController.signal.aborted) {
+        return;
+      }
       set({
         isExporting: false,
         exportProgress: 0,
@@ -626,6 +656,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         exportResult: null,
       });
       toast.error(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      if (activeAudioExportAbortController === abortController) {
+        activeAudioExportAbortController = null;
+      }
     }
   },
 
@@ -655,6 +689,12 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     const effectivePitchPreserve =
       exportConfig.applyPlaybackSpeed !== false ? pitchPreserve : true;
 
+    if (activeAudioExportAbortController) {
+      activeAudioExportAbortController.abort();
+    }
+    const abortController = new AbortController();
+    activeAudioExportAbortController = abortController;
+
     set({ isExporting: true, exportProgress: 10, exportResult: null });
     try {
       const renderedBuffer = await renderProcessedAudioOffline({
@@ -680,11 +720,21 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         pitchPreserve: effectivePitchPreserve,
       });
 
+      if (abortController.signal.aborted) return;
+
       set({ exportProgress: 50 });
 
-      const encoded = await encodeAudioBuffer(renderedBuffer, exportConfig, (progress) => {
-        set({ exportProgress: Math.min(99, 50 + Math.round(progress * 0.49)) });
-      });
+      const encoded = await encodeAudioBuffer(
+        renderedBuffer,
+        exportConfig,
+        (progress) => {
+          const clamped = Math.max(0, Math.min(100, progress));
+          set({ exportProgress: Math.min(99, 50 + Math.round((clamped / 100) * 49)) });
+        },
+        abortController.signal,
+      );
+
+      if (abortController.signal.aborted) return;
 
       const safeLabel = cue.label.replace(/[^a-zA-Z0-9_-]/g, "_");
       const speedSuffix =
@@ -726,6 +776,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         toast.success(`Exported slice: ${outFileName}. Click Save to download.`);
       }
     } catch (err) {
+      if (abortController.signal.aborted) return;
       set({
         isExporting: false,
         exportProgress: 0,
@@ -733,6 +784,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
         exportResult: null,
       });
       toast.error(err instanceof Error ? err.message : "Failed to export slice");
+    } finally {
+      if (activeAudioExportAbortController === abortController) {
+        activeAudioExportAbortController = null;
+      }
     }
   },
 

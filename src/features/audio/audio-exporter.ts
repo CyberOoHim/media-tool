@@ -29,12 +29,17 @@ export async function encodeAudioBuffer(
   buffer: AudioBuffer,
   config: AudioExportConfig,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<EncodedAudioResult> {
+  if (signal?.aborted) {
+    throw new Error("Audio export cancelled by user.");
+  }
   const { format, bitDepth = 16, bitrateKbps = 192 } = config;
 
   // 1. WAV lossless export
   if (format === "wav") {
     onProgress?.(50);
+    if (signal?.aborted) throw new Error("Audio export cancelled by user.");
     const wavBlob = audioBufferToWavBlob(buffer, bitDepth);
     onProgress?.(100);
     return {
@@ -50,9 +55,10 @@ export async function encodeAudioBuffer(
   if (format === "ogg" || format === "opus" || format === "webm") {
     if (isAudioEncoderSupported()) {
       try {
-        const result = await encodeOpusWebCodecs(buffer, format, bitrateKbps, onProgress);
+        const result = await encodeOpusWebCodecs(buffer, format, bitrateKbps, onProgress, signal);
         return result;
       } catch (err) {
+        if (signal?.aborted) throw err;
         console.warn("WebCodecs Opus encoding failed, attempting fallback:", err);
       }
     }
@@ -62,9 +68,10 @@ export async function encodeAudioBuffer(
   if (format === "aac") {
     if (isAudioEncoderSupported()) {
       try {
-        const result = await encodeAacWebCodecs(buffer, bitrateKbps, onProgress);
+        const result = await encodeAacWebCodecs(buffer, bitrateKbps, onProgress, signal);
         return result;
       } catch (err) {
+        if (signal?.aborted) throw err;
         console.warn("WebCodecs AAC encoding failed, attempting fallback:", err);
       }
     }
@@ -74,13 +81,16 @@ export async function encodeAudioBuffer(
   if (format === "mp3") {
     if (isAudioEncoderSupported()) {
       try {
-        const result = await encodeMp3WebCodecs(buffer, bitrateKbps, onProgress);
+        const result = await encodeMp3WebCodecs(buffer, bitrateKbps, onProgress, signal);
         return result;
       } catch (err) {
+        if (signal?.aborted) throw err;
         console.warn("WebCodecs MP3 encoding fallback:", err);
       }
     }
   }
+
+  if (signal?.aborted) throw new Error("Audio export cancelled by user.");
 
   // Fallback: Default to clean lossless WAV PCM and signal that format fallback occurred
   onProgress?.(50);
@@ -105,6 +115,7 @@ async function encodeOpusWebCodecs(
   targetFormat: "ogg" | "opus" | "webm",
   bitrateKbps: number,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<EncodedAudioResult> {
   const numChannels = Math.min(2, Math.max(1, buffer.numberOfChannels));
   const sampleRate = buffer.sampleRate;
@@ -135,13 +146,11 @@ async function encodeOpusWebCodecs(
 
   let encoderError: Error | null = null;
 
-  // Initialize WebCodecs AudioEncoder
   const encoder = new AudioEncoder({
     output: (chunk) => {
       if (oggMuxer) {
         const chunkData = new Uint8Array(chunk.byteLength);
         chunk.copyTo(chunkData);
-        // Opus chunk duration in 48kHz samples
         const sampleCount = Math.round((chunk.duration ? chunk.duration / 1_000_000 : 0.02) * sampleRate);
         oggMuxer.addOpusPacket(chunkData, sampleCount > 0 ? sampleCount : 960);
       } else if (webmMuxer) {
@@ -153,91 +162,100 @@ async function encodeOpusWebCodecs(
     },
   });
 
-  encoder.configure({
-    codec: "opus",
-    numberOfChannels: numChannels,
-    sampleRate,
-    bitrate: targetBitrateBps,
-  });
-
-  // Encode in 20ms frames (e.g. 960 samples @ 48kHz, or 882 @ 44.1kHz)
-  const frameSize = Math.round(sampleRate * 0.02);
-  const planarBuffer = new Float32Array(frameSize * numChannels);
-
-  for (let offset = 0; offset < totalSamples; offset += frameSize) {
-    if (encoderError) throw encoderError;
-
-    // Thermal & Memory Backpressure Guard for iPads / Mobile:
-    // Throttles feed when encoder queue exceeds 4 items to prevent memory ballooning,
-    // GC thrashing, and high CPU P-core heat generation.
-    while (encoder.encodeQueueSize > 4) {
-      await new Promise((r) => setTimeout(r, 4));
-    }
-
-    const currentBlock = Math.min(frameSize, totalSamples - offset);
-    if (currentBlock < frameSize) {
-      planarBuffer.fill(0);
-    }
-
-    for (let ch = 0; ch < numChannels; ch++) {
-      const channelData = buffer.getChannelData(ch);
-      const slice = channelData.subarray(offset, offset + currentBlock);
-      planarBuffer.set(slice, ch * frameSize);
-    }
-
-    const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
-    const audioData = new AudioData({
-      format: "f32-planar",
-      sampleRate,
-      numberOfFrames: frameSize,
+  try {
+    encoder.configure({
+      codec: "opus",
       numberOfChannels: numChannels,
-      timestamp: timestampUs,
-      data: planarBuffer,
+      sampleRate,
+      bitrate: targetBitrateBps,
     });
 
-    encoder.encode(audioData);
-    audioData.close();
+    const frameSize = Math.round(sampleRate * 0.02);
+    const planarBuffer = new Float32Array(frameSize * numChannels);
 
-    if (offset % (frameSize * 25) === 0) {
-      const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
-      onProgress?.(pct);
-      // Yield to browser main thread event loop to allow OS thermal pacing
-      await new Promise((r) => setTimeout(r, 0));
+    for (let offset = 0; offset < totalSamples; offset += frameSize) {
+      if (signal?.aborted) {
+        throw new Error("Audio export cancelled by user.");
+      }
+      if (encoderError) throw encoderError;
+
+      while (encoder.encodeQueueSize > 4) {
+        if (signal?.aborted) throw new Error("Audio export cancelled by user.");
+        await new Promise((r) => setTimeout(r, 4));
+      }
+
+      const currentBlock = Math.min(frameSize, totalSamples - offset);
+      if (currentBlock < frameSize) {
+        planarBuffer.fill(0);
+      }
+
+      for (let ch = 0; ch < numChannels; ch++) {
+        const channelData = buffer.getChannelData(ch);
+        const slice = channelData.subarray(offset, offset + currentBlock);
+        planarBuffer.set(slice, ch * frameSize);
+      }
+
+      const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
+      const audioData = new AudioData({
+        format: "f32-planar",
+        sampleRate,
+        numberOfFrames: frameSize,
+        numberOfChannels: numChannels,
+        timestamp: timestampUs,
+        data: planarBuffer,
+      });
+
+      encoder.encode(audioData);
+      audioData.close();
+
+      if (offset % (frameSize * 25) === 0) {
+        const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
+        onProgress?.(pct);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    if (signal?.aborted) throw new Error("Audio export cancelled by user.");
+    await encoder.flush();
+    onProgress?.(98);
+
+    if (targetFormat === "webm" && webmMuxer) {
+      webmMuxer.finalize();
+      const blob = new Blob([webmMuxer.target.buffer], { type: "audio/webm; codecs=opus" });
+      onProgress?.(100);
+      return {
+        blob,
+        extension: "webm",
+        mimeType: "audio/webm",
+        format: "webm",
+        bitrateKbps,
+      };
+    }
+
+    if (oggMuxer) {
+      const isOpusExt = targetFormat === "opus";
+      const mimeType = isOpusExt ? "audio/opus" : "audio/ogg; codecs=opus";
+      const blob = oggMuxer.finalize(mimeType);
+      onProgress?.(100);
+      return {
+        blob,
+        extension: isOpusExt ? "opus" : "ogg",
+        mimeType: isOpusExt ? "audio/opus" : "audio/ogg",
+        format: targetFormat,
+        bitrateKbps,
+      };
+    }
+
+    throw new Error("Opus encoding failed to assemble container.");
+  } finally {
+    try {
+      if (encoder.state !== "closed") {
+        encoder.close();
+      }
+    } catch {
+      // ignore
     }
   }
-
-  await encoder.flush();
-  encoder.close();
-  onProgress?.(98);
-
-  if (targetFormat === "webm" && webmMuxer) {
-    webmMuxer.finalize();
-    const blob = new Blob([webmMuxer.target.buffer], { type: "audio/webm; codecs=opus" });
-    onProgress?.(100);
-    return {
-      blob,
-      extension: "webm",
-      mimeType: "audio/webm",
-      format: "webm",
-      bitrateKbps,
-    };
-  }
-
-  if (oggMuxer) {
-    const isOpusExt = targetFormat === "opus";
-    const mimeType = isOpusExt ? "audio/opus" : "audio/ogg; codecs=opus";
-    const blob = oggMuxer.finalize(mimeType);
-    onProgress?.(100);
-    return {
-      blob,
-      extension: isOpusExt ? "opus" : "ogg",
-      mimeType: isOpusExt ? "audio/opus" : "audio/ogg",
-      format: targetFormat,
-      bitrateKbps,
-    };
-  }
-
-  throw new Error("Opus encoding failed to assemble container.");
 }
 
 /**
@@ -247,6 +265,7 @@ async function encodeAacWebCodecs(
   buffer: AudioBuffer,
   bitrateKbps: number,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<EncodedAudioResult> {
   const numChannels = Math.min(2, Math.max(1, buffer.numberOfChannels));
   const sampleRate = buffer.sampleRate;
@@ -275,70 +294,82 @@ async function encodeAacWebCodecs(
     },
   });
 
-  encoder.configure({
-    codec: "mp4a.40.2",
-    numberOfChannels: numChannels,
-    sampleRate,
-    bitrate: targetBitrateBps,
-  });
-
-  const frameSize = 1024;
-  const planarBuffer = new Float32Array(frameSize * numChannels);
-
-  for (let offset = 0; offset < totalSamples; offset += frameSize) {
-    if (encoderError) throw encoderError;
-
-    // Thermal & Memory Backpressure Guard for iPads / Mobile
-    while (encoder.encodeQueueSize > 4) {
-      await new Promise((r) => setTimeout(r, 4));
-    }
-
-    const currentBlock = Math.min(frameSize, totalSamples - offset);
-    if (currentBlock < frameSize) {
-      planarBuffer.fill(0);
-    }
-
-    for (let ch = 0; ch < numChannels; ch++) {
-      const channelData = buffer.getChannelData(ch);
-      const slice = channelData.subarray(offset, offset + currentBlock);
-      planarBuffer.set(slice, ch * frameSize);
-    }
-
-    const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
-    const audioData = new AudioData({
-      format: "f32-planar",
-      sampleRate,
-      numberOfFrames: frameSize,
+  try {
+    encoder.configure({
+      codec: "mp4a.40.2",
       numberOfChannels: numChannels,
-      timestamp: timestampUs,
-      data: planarBuffer,
+      sampleRate,
+      bitrate: targetBitrateBps,
     });
 
-    encoder.encode(audioData);
-    audioData.close();
+    const frameSize = 1024;
+    const planarBuffer = new Float32Array(frameSize * numChannels);
 
-    if (offset % (frameSize * 25) === 0) {
-      const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
-      onProgress?.(pct);
-      // Yield to browser main thread event loop
-      await new Promise((r) => setTimeout(r, 0));
+    for (let offset = 0; offset < totalSamples; offset += frameSize) {
+      if (signal?.aborted) {
+        throw new Error("Audio export cancelled by user.");
+      }
+      if (encoderError) throw encoderError;
+
+      while (encoder.encodeQueueSize > 4) {
+        if (signal?.aborted) throw new Error("Audio export cancelled by user.");
+        await new Promise((r) => setTimeout(r, 4));
+      }
+
+      const currentBlock = Math.min(frameSize, totalSamples - offset);
+      if (currentBlock < frameSize) {
+        planarBuffer.fill(0);
+      }
+
+      for (let ch = 0; ch < numChannels; ch++) {
+        const channelData = buffer.getChannelData(ch);
+        const slice = channelData.subarray(offset, offset + currentBlock);
+        planarBuffer.set(slice, ch * frameSize);
+      }
+
+      const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
+      const audioData = new AudioData({
+        format: "f32-planar",
+        sampleRate,
+        numberOfFrames: frameSize,
+        numberOfChannels: numChannels,
+        timestamp: timestampUs,
+        data: planarBuffer,
+      });
+
+      encoder.encode(audioData);
+      audioData.close();
+
+      if (offset % (frameSize * 25) === 0) {
+        const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
+        onProgress?.(pct);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    if (signal?.aborted) throw new Error("Audio export cancelled by user.");
+    await encoder.flush();
+
+    mp4Muxer.finalize();
+    const blob = new Blob([mp4Muxer.target.buffer], { type: "audio/mp4" });
+    onProgress?.(100);
+
+    return {
+      blob,
+      extension: "m4a",
+      mimeType: "audio/mp4",
+      format: "aac",
+      bitrateKbps,
+    };
+  } finally {
+    try {
+      if (encoder.state !== "closed") {
+        encoder.close();
+      }
+    } catch {
+      // ignore
     }
   }
-
-  await encoder.flush();
-  encoder.close();
-
-  mp4Muxer.finalize();
-  const blob = new Blob([mp4Muxer.target.buffer], { type: "audio/mp4" });
-  onProgress?.(100);
-
-  return {
-    blob,
-    extension: "m4a",
-    mimeType: "audio/mp4",
-    format: "aac",
-    bitrateKbps,
-  };
 }
 
 /**
@@ -348,6 +379,7 @@ async function encodeMp3WebCodecs(
   buffer: AudioBuffer,
   bitrateKbps: number,
   onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
 ): Promise<EncodedAudioResult> {
   const numChannels = Math.min(2, Math.max(1, buffer.numberOfChannels));
   const sampleRate = buffer.sampleRate;
@@ -368,65 +400,79 @@ async function encodeMp3WebCodecs(
     },
   });
 
-  encoder.configure({
-    codec: "mp3",
-    numberOfChannels: numChannels,
-    sampleRate,
-    bitrate: targetBitrateBps,
-  });
-
-  const frameSize = 1152;
-  const planarBuffer = new Float32Array(frameSize * numChannels);
-
-  for (let offset = 0; offset < totalSamples; offset += frameSize) {
-    if (encoderError) throw encoderError;
-
-    while (encoder.encodeQueueSize > 4) {
-      await new Promise((r) => setTimeout(r, 4));
-    }
-
-    const currentBlock = Math.min(frameSize, totalSamples - offset);
-    if (currentBlock < frameSize) {
-      planarBuffer.fill(0);
-    }
-
-    for (let ch = 0; ch < numChannels; ch++) {
-      const channelData = buffer.getChannelData(ch);
-      const slice = channelData.subarray(offset, offset + currentBlock);
-      planarBuffer.set(slice, ch * frameSize);
-    }
-
-    const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
-    const audioData = new AudioData({
-      format: "f32-planar",
-      sampleRate,
-      numberOfFrames: frameSize,
+  try {
+    encoder.configure({
+      codec: "mp3",
       numberOfChannels: numChannels,
-      timestamp: timestampUs,
-      data: planarBuffer,
+      sampleRate,
+      bitrate: targetBitrateBps,
     });
 
-    encoder.encode(audioData);
-    audioData.close();
+    const frameSize = 1152;
+    const planarBuffer = new Float32Array(frameSize * numChannels);
 
-    if (offset % (frameSize * 25) === 0) {
-      const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
-      onProgress?.(pct);
-      await new Promise((r) => setTimeout(r, 0));
+    for (let offset = 0; offset < totalSamples; offset += frameSize) {
+      if (signal?.aborted) {
+        throw new Error("Audio export cancelled by user.");
+      }
+      if (encoderError) throw encoderError;
+
+      while (encoder.encodeQueueSize > 4) {
+        if (signal?.aborted) throw new Error("Audio export cancelled by user.");
+        await new Promise((r) => setTimeout(r, 4));
+      }
+
+      const currentBlock = Math.min(frameSize, totalSamples - offset);
+      if (currentBlock < frameSize) {
+        planarBuffer.fill(0);
+      }
+
+      for (let ch = 0; ch < numChannels; ch++) {
+        const channelData = buffer.getChannelData(ch);
+        const slice = channelData.subarray(offset, offset + currentBlock);
+        planarBuffer.set(slice, ch * frameSize);
+      }
+
+      const timestampUs = Math.round((offset / sampleRate) * 1_000_000);
+      const audioData = new AudioData({
+        format: "f32-planar",
+        sampleRate,
+        numberOfFrames: frameSize,
+        numberOfChannels: numChannels,
+        timestamp: timestampUs,
+        data: planarBuffer,
+      });
+
+      encoder.encode(audioData);
+      audioData.close();
+
+      if (offset % (frameSize * 25) === 0) {
+        const pct = Math.min(95, Math.round((offset / totalSamples) * 100));
+        onProgress?.(pct);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+
+    if (signal?.aborted) throw new Error("Audio export cancelled by user.");
+    await encoder.flush();
+
+    const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
+    onProgress?.(100);
+
+    return {
+      blob,
+      extension: "mp3",
+      mimeType: "audio/mpeg",
+      format: "mp3",
+      bitrateKbps,
+    };
+  } finally {
+    try {
+      if (encoder.state !== "closed") {
+        encoder.close();
+      }
+    } catch {
+      // ignore
     }
   }
-
-  await encoder.flush();
-  encoder.close();
-
-  const blob = new Blob(chunks as BlobPart[], { type: "audio/mpeg" });
-  onProgress?.(100);
-
-  return {
-    blob,
-    extension: "mp3",
-    mimeType: "audio/mpeg",
-    format: "mp3",
-    bitrateKbps,
-  };
 }

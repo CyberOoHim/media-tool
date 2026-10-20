@@ -1,6 +1,7 @@
 import {
   CheckCircle2,
   Cpu,
+  Crop,
   Download,
   Film,
   Flame,
@@ -11,6 +12,7 @@ import {
   Monitor,
   RotateCcw,
   Scissors,
+  Sliders,
   Unlink2,
   Volume2,
   VolumeX,
@@ -40,6 +42,7 @@ import { downloadBlob } from "@/features/media/download";
 import { estimateVideoExport, extractVideoSourceMetadata } from "@/features/media/estimation";
 import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
+import { hasActiveTransform, type TransformState } from "@/features/media/transform";
 import { cn } from "@/lib/utils";
 import {
   DEFAULT_SOURCE_FPS,
@@ -63,6 +66,7 @@ interface TrimControlsProps {
   disabled?: boolean;
   videoDims?: { w: number; h: number; fps?: number } | null;
   sourceFps?: number;
+  activeTransform?: TransformState;
 }
 
 export function TrimControls({
@@ -72,6 +76,7 @@ export function TrimControls({
   disabled = false,
   videoDims,
   sourceFps,
+  activeTransform,
 }: TrimControlsProps) {
   const video = useMediaStore((s) => s.video);
   const trimMode = useMediaStore((s) => s.trimMode);
@@ -275,6 +280,7 @@ export function TrimControls({
           fps: effectiveFps,
           bitrateMbps: activeBitrateMbps,
         },
+        transform: activeTransform,
         onProgress: (prog) => {
           setExportProgress(prog);
         },
@@ -917,6 +923,51 @@ export function TrimControls({
                 </span>
                 <span className="text-[9px] font-mono font-bold uppercase">
                   {exportConfig.keepAudio ? "🔊 ON" : "🔇 OFF"}
+                </span>
+              </Button>
+            </div>
+
+            {/* Bake Video Framing & Crop Toggle */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] flex items-center gap-1">
+                  <Crop className="size-3 text-signal" />
+                  Bake Framing & Crop
+                </Label>
+                {activeTransform && hasActiveTransform(activeTransform) ? (
+                  <span className="rounded-xs px-1.5 py-0.2 font-mono text-[9px] font-bold uppercase border border-signal/40 bg-signal/15 text-signal">
+                    ACTIVE TRANSFORM
+                  </span>
+                ) : (
+                  <span className="rounded-xs px-1.5 py-0.2 font-mono text-[9px] font-bold uppercase border border-border bg-secondary text-muted-foreground">
+                    NO TRANSFORM
+                  </span>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant={exportConfig.bakeTransform !== false ? "outline" : "secondary"}
+                size="sm"
+                disabled={disabled || isExporting}
+                onClick={() =>
+                  setExportConfig({ bakeTransform: exportConfig.bakeTransform === false })
+                }
+                className={cn(
+                  "h-7 w-full justify-between px-2 text-[11px] font-mono transition-all",
+                  exportConfig.bakeTransform !== false
+                    ? "border-signal/60 bg-signal/10 text-foreground hover:bg-signal/20 shadow-[1px_1px_0px_var(--color-signal)]"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+                title="Bakes active rotation, zoom, pan, and crop preset directly into the exported MP4 video"
+              >
+                <span className="flex items-center gap-1.5 font-bold">
+                  <Sliders className="size-3.5 text-signal" />
+                  {exportConfig.bakeTransform !== false
+                    ? "Bake Active Framing"
+                    : "Pass-Through Source"}
+                </span>
+                <span className="text-[9px] font-mono font-bold uppercase">
+                  {exportConfig.bakeTransform !== false ? "ON" : "OFF"}
                 </span>
               </Button>
             </div>

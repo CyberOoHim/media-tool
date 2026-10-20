@@ -49,6 +49,7 @@ export const DEFAULT_EXPORT_CONFIG: ExportConfig = {
   format: "mp4",
   bitrateMbps: 8,
   keepAudio: true,
+  bakeTransform: true,
 };
 
 type MediaState = {
@@ -289,7 +290,18 @@ export const useMediaStore = create<MediaState>((set, get) => ({
       if (source?.fromCaptureId === item.id) continue;
       revokeQuiet(item.objectUrl);
     }
-    set({ captures: [] });
+    // If current source is from a deleted capture, detach fromCaptureId so clearBench will safely revoke it
+    if (source?.fromCaptureId) {
+      set({
+        captures: [],
+        source: {
+          ...source,
+          fromCaptureId: undefined,
+        },
+      });
+    } else {
+      set({ captures: [] });
+    }
   },
 
   process: async () => {

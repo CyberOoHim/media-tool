@@ -603,6 +603,7 @@ export function ImageBench() {
               }}
               onTransformChange={(partial) => setBenchTransform(partial)}
               containerRef={previewContainerRef}
+              sourceDimensions={source ? { width: source.width, height: source.height } : undefined}
             />
 
             {/* Optimized Card */}
@@ -614,6 +615,7 @@ export function ImageBench() {
               size={output ? formatFileSize(output.blob.size) : "—"}
               tag={output ? extFromMime(output.format).toUpperCase() : "TARGET"}
               sizeAccent
+              sourceDimensions={output ? { width: output.width, height: output.height } : (source ? { width: source.width, height: source.height } : undefined)}
               extra={
                 pct
                   ? {
@@ -720,6 +722,7 @@ function PreviewCard({
   onClearTransforms,
   onTransformChange,
   containerRef,
+  sourceDimensions,
 }: {
   title: string;
   src?: string;
@@ -739,6 +742,7 @@ function PreviewCard({
   onClearTransforms?: () => void;
   onTransformChange?: (partial: Partial<TransformState>) => void;
   containerRef?: React.RefObject<HTMLDivElement | null>;
+  sourceDimensions?: { width: number; height: number };
 }) {
   const hasTransform = transform && hasActiveTransform(transform);
   const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({
@@ -959,9 +963,12 @@ function PreviewCard({
               transform.cropPreset,
               transform.customWidth,
               transform.customHeight,
-              16,
-              9,
-            ) ?? (16 / 9);
+              sourceDimensions?.width || 16,
+              sourceDimensions?.height || 9,
+            ) ??
+            (sourceDimensions && sourceDimensions.height > 0
+              ? sourceDimensions.width / sourceDimensions.height
+              : 16 / 9);
 
           const presetLabel =
             CROP_PRESETS.find((p) => p.id === transform.cropPreset)?.label ??

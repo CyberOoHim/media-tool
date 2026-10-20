@@ -37,6 +37,7 @@ import { getCropAspectRatio, resolveCropTarget } from "@/features/media/crop";
 import { formatFileSize, formatTime, formatTimePrecise } from "@/features/media/format";
 import { useMediaStore } from "@/features/media/store";
 import { useAudioStore } from "@/features/audio/store";
+import { useDeckFocusStore } from "@/lib/deck-focus-store";
 import {
   DEFAULT_TRANSFORM,
   calculateOrientedDimensions,
@@ -79,6 +80,8 @@ export function VideoPlayer() {
   const setPreviewTrimMode = useMediaStore((s) => s.setPreviewTrimMode);
   const toggleLoop = useMediaStore((s) => s.toggleLoop);
   const clearTrimRange = useMediaStore((s) => s.clearTrimRange);
+  const focusedDeck = useDeckFocusStore((s) => s.focusedDeck);
+  const claimFocus = useDeckFocusStore((s) => s.claimFocus);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoContainerRef = useRef<HTMLDivElement>(null);
 
@@ -401,6 +404,7 @@ export function VideoPlayer() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (!videoSession) return;
+      if (focusedDeck && focusedDeck !== "video") return;
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -570,6 +574,7 @@ export function VideoPlayer() {
     toggleMute,
     togglePlay,
     videoSession,
+    focusedDeck,
   ]);
 
   const gotoTyped = () => {
@@ -606,6 +611,9 @@ export function VideoPlayer() {
       title="Deck-1 // Video"
       status={deckStatus}
       statusVariant={deckStatusVariant}
+      isFocused={focusedDeck === "video"}
+      onMouseEnter={() => claimFocus("video")}
+      onClick={() => claimFocus("video")}
       action={
         videoSession ? (
           <div className="flex items-center gap-2">
@@ -1562,6 +1570,7 @@ export function VideoPlayer() {
           onSeek={jumpTo}
           disabled={disabled}
           videoDims={videoDims}
+          activeTransform={videoTransform}
         />
       </div>
 
